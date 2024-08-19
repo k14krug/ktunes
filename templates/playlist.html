@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ playlist.playlist_name }}{% endblock %}
+{% block content %}
+
+<div class="container mt-4">
+    <h1 class="mb-4">{{ playlist.playlist_name }}</h1>
+    <p>Created on: {{ playlist.playlist_date.strftime('%Y-%m-%d %H:%M') }}</p>
+    <p>Total tracks: {{ playlist.track_count }}</p>
+
+    <h2 class="mt-4 mb-3">Category Percentages</h2>
+    <div class="row">
+        {% for category, percentage in category_percentages %}
+        <div class="col-md-4 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">{{ category }}</h5>
+                    <div class="progress">
+                        <div class="progress-bar" role="progressbar" style="width: {{ percentage }}%;" aria-valuenow="{{ percentage }}" aria-valuemin="0" aria-valuemax="100">
+                            {{ percentage|round(1) }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h2 class="mt-4 mb-3">Playlist Tracks</h2>
+
+    <form method="get" action="{{ url_for('view_playlist', playlist_name=playlist.playlist_name) }}" class="mb-4">
+        <div class="form-row">
+            <div class="form-group col-md-3">
+                <input type="text" class="form-control" id="song" name="song" placeholder="Filter by Song" value="{{ request.args.get('song', '') }}">
+            </div>
+            <div class="form-group col-md-3">
+                <input type="text" class="form-control" id="artist" name="artist" placeholder="Filter by Artist" value="{{ request.args.get('artist', '') }}">
+            </div>
+            <div class="form-group col-md-3">
+                <input type="text" class="form-control" id="category" name="category" placeholder="Filter by Category" value="{{ request.args.get('category', '') }}">
+            </div>
+            <div class="form-group col-md-3">
+                <button type="submit" class="btn btn-primary">Filter</button>
+                <a href="{{ url_for('view_playlist', playlist_name=playlist.playlist_name) }}" class="btn btn-secondary">Clear</a>
+            </div>
+        </div>
+    </form>
+
+    {% if tracks %}
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Artist</th>
+                    <th>Song</th>
+                    <th>Category</th>
+                    <th>Play Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for track in tracks %}
+                <tr>
+                    <td>{{ track.track_position }}</td>
+                    <td>{{ track.artist }}</td>
+                    <td>{{ track.song }}</td>
+                    <td>{{ track.category }}</td>
+                    <td>{{ track.play_cnt }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info" role="alert">
+        This playlist is empty or no tracks match the current filters.
+    </div>
+    {% endif %}
+
+    <a href="{{ url_for('playlists') }}" class="btn btn-primary mt-3">Back to Playlists</a>
+</div>
+
+{% endblock %}

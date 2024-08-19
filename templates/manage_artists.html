@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container mt-4">
+    <h1 id="manage-artists" class="mb-4">Manage Artists</h1>
+
+    <h2 class="mb-3">Create New Artist Grouping</h2>
+    <form id="grouping-form" method="POST" class="mb-5">
+        <div class="row">
+            <div class="col-md-5 mb-3">
+                <label for="common_name" class="form-label">Common Name</label>
+                <input type="text" class="form-control" id="common_name" name="common_name" required>
+            </div>
+            <div class="col-md-5 mb-3">
+                <label for="artist" class="form-label">Artist</label>
+                <input type="text" class="form-control" id="artist" name="artist" required>
+            </div>
+            <div class="col-md-2 mb-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary">Create Grouping</button>
+            </div>
+        </div>
+    </form>
+
+    <h2 id="current-artist-groupings" class="mt-4 mb-3">Current Artist Groupings</h2>
+
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Common Name</th>
+                    <th>Artist</th>
+                    <th>Track Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for artist, common_name, artist_count, _ in artist_mappings %}
+                    <tr>
+                        <td>
+                            {% if common_name %}
+                                {{ common_name }} ({{ common_name_totals[common_name] }})
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>{{ artist }}</td>
+                        <td>{{ artist_count }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    $(function() {
+        $("#artist").autocomplete({
+            source: "/autocomplete/artists",
+            minLength: 2
+        });
+        $("#common_name").autocomplete({
+            source: "/autocomplete/common_names",
+            minLength: 2
+        });
+    });
+</script>
+
+{% endblock %}

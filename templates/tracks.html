@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tracks</h1>
+
+<form method="GET" action="{{ url_for('tracks') }}">
+    <div class="form-row">
+        <div class="form-group col-md-4">
+            <input type="text" class="form-control" name="song" placeholder="Filter by Song" value="{{ request.args.get('song', '') }}">
+        </div>
+        <div class="form-group col-md-4">
+            <input type="text" class="form-control" name="artist" placeholder="Filter by Artist" value="{{ request.args.get('artist', '') }}">
+        </div>
+        <div class="form-group col-md-3">
+            <input type="text" class="form-control" name="category" placeholder="Filter by Category" value="{{ request.args.get('category', '') }}">
+        </div>
+        <div class="form-group col-md-1">
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </div>
+    </div>
+</form>
+
+<p>Displaying {{ tracks|length }} tracks out of {{ pagination.total }} total</p>
+
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            {% set sort_args = request.args.copy() %}
+            {% set _ = sort_args.pop('sort', None) %}
+            {% set _ = sort_args.pop('direction', None) %}
+            <th>
+                <a href="{{ url_for('tracks', sort='song', direction='asc' if sort_column != 'song' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Song
+                    {% if sort_column == 'song' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('tracks', sort='artist', direction='asc' if sort_column != 'artist' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Artist
+                    {% if sort_column == 'artist' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('tracks', sort='album', direction='asc' if sort_column != 'album' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Album
+                    {% if sort_column == 'album' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('tracks', sort='category', direction='asc' if sort_column != 'category' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Category
+                    {% if sort_column == 'category' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('tracks', sort='play_cnt', direction='asc' if sort_column != 'play_cnt' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Play Count
+                    {% if sort_column == 'play_cnt' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('tracks', sort='date_added', direction='asc' if sort_column != 'date_added' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Date Added
+                    {% if sort_column == 'date_added' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('tracks', sort='last_play_dt', direction='asc' if sort_column != 'last_play_dt' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                    Last Played
+                    {% if sort_column == 'last_play_dt' %}
+                        <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
+                    {% endif %}
+                </a>
+            </th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for track in tracks %}
+        <tr>
+            <td>{{ track.song }}</td>
+            <td>{{ track.artist }}</td>
+            <td>{{ track.album }}</td>
+            <td>{{ track.category }}</td>
+            <td>{{ track.play_cnt }}</td>
+            <td>{{ track.date_added }}</td>
+            <td>{{ track.last_play_dt }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="pagination-wrapper">
+    {{ pagination.links }}
+</div>
+{% endblock %}

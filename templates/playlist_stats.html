@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Playlist Statistics{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Playlist Statistics</h1>
+
+    <div class="row">
+        <div class="col-md-6">
+            <h2>Playlist: {{ playlist.name }}</h2>
+            <p>Total tracks: {{ playlist.tracks|length }}</p>
+            <p>Total duration: {{ stats.total_duration }} minutes</p>
+        </div>
+        <div class="col-md-6">
+            <h3>Category Distribution</h3>
+            <ul class="list-group">
+                {% for category, percentage in stats.category_distribution.items() %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    {{ category }}
+                    <span class="badge bg-primary rounded-pill">{{ percentage }}%</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <h3 class="mt-4">Playlist Tracks</h3>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Title</th>
+                <th>Artist</th>
+                <th>Album</th>
+                <th>Duration</th>
+                <th>Category</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for track in playlist.tracks %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ track.name }}</td>
+                <td>{{ track.artist }}</td>
+                <td>{{ track.album }}</td>
+                <td>{{ track.duration }}</td>
+                <td>{{ track.category }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="mt-4">
+        <a href="{{ url_for('index') }}" class="btn btn-primary">Back to Home</a>
+        <a href="{{ url_for('playlists') }}" class="btn btn-secondary">View All Playlists</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // You can add any additional JavaScript here if needed
+</script>
+{% endblock %}

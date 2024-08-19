@@ -1,0 +1,107 @@
+Playlist Generator Application Requirements
+1. Core Functionality
+	• Generate customized playlists based on user-defined categories and preferences
+	• Manage and update track information from iTunes XML library using pre-existing class
+	• Allow users to create accounts, log in, and manage their playlists
+	• Integrate generated playlists with iTunes using pre-existing class
+2. Data Model
+Tracks Table
+	• Store essential track information: song, artist, album, file location, category, play count, etc.
+	• Include played_sw field to mark tracks as played within a playlist generation session
+	• Use artist_common_name for grouping related artists (e.g., solo work and band work)
+Playlists Table
+	• Store generated playlist information: name, date, track position, song, artist, category, etc.
+	• Associate playlists with user accounts
+Users Table
+	• Store user account information for authentication and playlist ownership
+3. Playlist Generation Logic
+Category Distribution
+	• Implement a sophisticated algorithm to distribute tracks across user-defined categories
+	• Ensure an even spread of tracks from each category throughout the playlist's duration
+	• Use a spacing mechanism to avoid clustering of any single category
+	• Calculate category spacing based on the total number of songs and the count for each category
+Artist Repeat Rules
+	• Implement artist repeat intervals for each category
+	• Prevent repetition of an artist until the specified number of other artists have been played
+	• Consider the higher repeat interval if an artist appears in multiple categories
+	• Use artist_common_name for artist repetition checks to group related artists
+Track Selection
+	• Prioritize least recently played tracks within each category
+	• Implement "Recent Adds" category for newly added tracks with low play counts
+	• Handle virtual category adjustments: 
+		○ Move tracks from the first category to "Recent Adds" if play count is below threshold
+		○ Move tracks older than 18 months from the first to the second category
+Considerations
+	• Ensure the algorithm can handle cases where there are not enough unique tracks in a category
+	• Implement logic to repeat tracks if necessary while maintaining artist repeat rules
+	• Avoid using random selection; the algorithm should be deterministic based on play history and category rules
+4. User Interface
+	• Utilize the provided base.html template with Bootstrap and a navbar
+	• Provide forms for playlist generation with customizable parameters: 
+		○ Playlist name
+		○ Playlist length in hours
+		○ Five user-defined category names
+		○ Percentage distribution for each category (including "Recent Adds")
+		○ Artist repeat number for each category
+		○ Minimum Recent Add Playcount
+	• Display existing playlists with options to view, upload to iTunes, or delete
+	• Offer settings management for iTunes directory and XML file location
+	• Implement user authentication and registration
+5. iTunes Integration
+	• Utilize the provided iTunesIntegrator class for inserting playlists into iTunes
+	• Use the ITunesXMLParser class to update track information in the database from the iTunes XML library
+6. Technical Requirements
+	• Use Flask for the web application framework
+	• Implement SQLAlchemy for database operations
+	• Create modular code structure with appropriate separation of concerns
+	• Use Bootstrap for consistent UI styling (already included in base.html)
+	• Implement proper error handling and logging
+	• Ensure security with login requirements for all main functionalities
+7. Additional Features
+	• Allow management of artist and artist_common_name relationships
+	• Generate M3U files for created playlists
+	• Provide statistics on generated playlists (e.g., actual category distribution)
+8. Configuration and Setup
+	• Use a JSON configuration file for user preferences and application settings
+	• Provide default values for first-time application execution
+	• Include settings for iTunes directory and XML file location
+9. Performance and Scalability
+	• Optimize database queries for efficient playlist generation
+	• Handle large music libraries without significant performance degradation
+	• Implement efficient algorithms for category distribution and artist repeat checks
+10. Integration with Existing Components
+iTunesIntegrator Class
+	• Seamlessly integrate with the provided iTunesIntegrator class for playlist insertion into iTunes
+	• Required fields for communication: 
+		○ playlist_name: String, name of the playlist to be inserted
+		○ config: Dictionary containing iTunes configuration, including: 
+			§ itunes_dir: String, path to the iTunes directory
+ITunesXMLParser Class
+	• Utilize the ITunesXMLParser class for parsing and updating track information from the iTunes XML library
+	• Required fields for initialization: 
+		○ xml_path: String, full path to the iTunes XML file
+	• Ensure the following track attributes are properly mapped and updated: 
+		○ song: String, name of the track
+		○ artist: String, name of the artist
+		○ album: String, name of the album
+		○ location: String, file path of the track
+		○ category: String, derived from the genre using the genre_category_map
+		○ last_play_dt: DateTime, last played date and time
+		○ date_added: DateTime, date the track was added to the library
+		○ play_cnt: Integer, number of times the track has been played
+		○ length: Integer, duration of the track in milliseconds
+Base HTML Template
+	• Use the provided base.html template as the foundation for all other templates
+	• Ensure consistent navigation and styling across the application
+	• The template includes: 
+		○ Bootstrap for styling
+		○ A navbar for navigation
+		○ Placeholders for: 
+			§ Page title
+			§ Additional CSS
+			§ Main content
+			§ Additional JavaScript
+Data Flow Considerations
+	• Ensure that the playlist generation process can output data in a format compatible with the iTunesIntegrator class
+	• Implement proper error handling for cases where the iTunes XML file might be missing or corrupted
+	• Create a mechanism to regularly update the local database using the ITunesXMLParser to keep track information current

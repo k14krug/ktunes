@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}View Playlist: {{ playlist_name }}{% endblock %}
+
+{% block content %}
+<h1>Playlist: {{ playlist_name }}</h1>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Position</th>
+            <th>Artist</th>
+            <th>Song</th>
+            <th>Category</th>
+            <th>Play Count</th>
+            <th>Artist Common Name</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for track in tracks %}
+        <tr>
+            <td>{{ track.track_position }}</td>
+            <td>{{ track.artist }}</td>
+            <td>{{ track.song }}</td>
+            <td>{{ track.category }}</td>
+            <td>{{ track.play_cnt }}</td>
+            <td>{{ track.artist_common_name or 'N/A' }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+<a href="{{ url_for('playlists') }}" class="btn btn-secondary">Back to Playlists</a>
+{% endblock %}
