@@ -11,6 +11,8 @@ from extensions import db, login_manager
 from flask_session import Session  # Add this import
 from datetime import timedelta  # Add this import
 from sqlalchemy import func, distinct, desc
+from spotify_integration import spotify_auth, spotify_callback, create_spotify_playlist, get_spotify_client
+from spotipy.oauth2 import SpotifyOAuth
 
 app = Flask(__name__)
 app_root = os.path.abspath(os.path.dirname(__file__))
@@ -27,6 +29,11 @@ app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)  # Set session lifetime to 31 days
 os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 Session(app)
+
+# Spotify configuration
+app.config['SPOTIPY_CLIENT_ID'] = 'bf5b82bad95f4d94a19f3b0b22dced56'
+app.config['SPOTIPY_CLIENT_SECRET'] = 'eab0a2259cde4d98a6048305345ab19c'
+app.config['SPOTIPY_REDIRECT_URI'] = 'http://localhost:5010/callback'
 
 db.init_app(app)
 login_manager.init_app(app)
@@ -478,6 +485,41 @@ def upload_to_itunes(playlist_name):
     itunes_integrator = iTunesIntegrator(playlist_name, config)
     print(f"itunes_integrator created")
     success, result_message = itunes_integrator.insert_playlist_to_itunes()
+    if success:
+        return jsonify({"success": True, "message": result_message})
+    else:
+        return jsonify({"success": False, "message": result_message}), 500
+
+# Add these routes to your app
+@app.route('/spotify_auth')
+@login_required
+def route_spotify_auth():
+    print("  Redirecting to Spotify auth")
+    return spotify_auth()
+
+@app.route('/callback')
+def route_callback():
+    print("  Redirecting to Spotify callback")
+    return spotify_callback()
+
+@app.route('/export_to_spotify/<playlist_name>', methods=['POST'])
+@login_required
+def export_to_spotify(playlist_name):
+    print(f"Exporting playlist {playlist_name} to Spotify")
+    sp = get_spotify_client()
+    if not sp:
+        # User is not authenticated with Spotify, redirect to auth
+        print("Spotify client is None, returning 401 and redirect to spotify_auth")
+        return jsonify({"success": False, "redirect": url_for('route_spotify_auth')}), 401
+
+    print(f" Returned from getting sp client for playlist {playlist_name}")
+    playlist_tracks = Playlist.query.filter_by(
+        username=current_user.username, 
+        playlist_name=playlist_name
+    ).order_by(Playlist.track_position).all()
+    
+    success, result_message = create_spotify_playlist(playlist_name, playlist_tracks)
+    print(f"Spotify playlist created: {success}, {result_message}")
     if success:
         return jsonify({"success": True, "message": result_message})
     else:
