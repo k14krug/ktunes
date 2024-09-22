@@ -105,3 +105,7 @@ Data Flow Considerations
 	• Ensure that the playlist generation process can output data in a format compatible with the iTunesIntegrator class
 	• Implement proper error handling for cases where the iTunes XML file might be missing or corrupted
 	• Create a mechanism to regularly update the local database using the ITunesXMLParser to keep track information current
+
+2024/09/20 - Latest Requirements
+In the process of generating a new playlist, determine the most recent generated playlist and find last tracks that were played in this playlist. If the user choose to use this playlist and postiton
+in the playlist when they generate a new playlist, the app should initialize the artist_last_played based on the artist that were played in that last playlist.

@@ -11,6 +11,7 @@ from extensions import db, login_manager
 from flask_session import Session  # Add this import
 from datetime import timedelta  # Add this import
 from sqlalchemy import func, distinct, desc
+from sqlalchemy.orm import aliased
 from spotify_integration import spotify_auth, spotify_callback, create_spotify_playlist, get_spotify_client
 from spotipy.oauth2 import SpotifyOAuth
 
@@ -115,10 +116,24 @@ def index():
             categories=default_categories,
             username=current_user.username
         )
+
+        # Fetch the most recent playlist and last played track position
+        recent_playlist, stop_point = generator.preview_last_playlist()
+        # Store values in session for later use when/if we generate the playlist
+        session['recent_playlist'] = recent_playlist.playlist_name if recent_playlist else None
+        session['stop_point'] = stop_point
+        
         track_counts = generator._get_track_counts()
         
-    return render_template('index.html', config=config['playlist_defaults'], track_counts=track_counts)
+    return render_template(
+        'index.html',
+        config=config['playlist_defaults'],
+        track_counts=track_counts,
+        recent_playlist=recent_playlist,  # Pass the recent playlist to the template
+        stop_point=stop_point  # Pass the stop point to the template
+    )
 
+    
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -152,29 +167,19 @@ def register():
             return redirect(url_for('login'))
     return render_template('register.html')
 
-@app.route('/generate_playlist', methods=['GET', 'POST'])
+@app.route('/generate_playlist', methods=['POST'])
 @login_required
 def generate_playlist():
-    if request.method == 'GET':
-        # Initialize PlaylistGenerator with default values to get initial track counts
-        default_categories = config['playlist_defaults']['categories']
-        generator = PlaylistGenerator(
-            playlist_name="",  # Empty placeholder
-            playlist_length=config['playlist_defaults']['playlist_length'],
-            minimum_recent_add_playcount=config['playlist_defaults']['minimum_recent_add_playcount'],
-            categories=default_categories,
-            username=current_user.username
-        )
-        track_counts = generator._get_track_counts()
-        
-        return render_template('index.html', config=config, track_counts=track_counts)
-
-    # POST request handling (playlist generation)
-    app.logger.info("In generate_playlist")
+    app.logger.info("In generate_playlist route")
     playlist_name = request.form['playlist_name']
     playlist_length = float(request.form['playlist_length'])
     minimum_recent_add_playcount = int(request.form['minimum_recent_add_playcount'])
     replace_existing = request.form.get('replace_existing', 'false') == 'true'
+    use_recent_playlist = request.form.get('use_recent_playlist') == 'on'
+
+    # Retrieve recent playlist and stop point from session
+    recent_playlist_name = session.get('recent_playlist')
+    stop_point = session.get('stop_point')
     
     # Check if playlist already exists
     existing_playlist = Playlist.query.filter_by(playlist_name=playlist_name, username=current_user.username).first()
@@ -185,7 +190,6 @@ def generate_playlist():
             'message': f"A playlist named '{playlist_name}' already exists. Do you want to replace it?"
         }), 409  # 409 Conflict
 
-    # If we're here, either the playlist doesn't exist or we're replacing it
     if existing_playlist:
         # Delete existing playlist
         Playlist.query.filter_by(playlist_name=playlist_name, username=current_user.username).delete()
@@ -194,7 +198,7 @@ def generate_playlist():
     # Update config with new values
     config['playlist_defaults']['playlist_length'] = playlist_length
     config['playlist_defaults']['minimum_recent_add_playcount'] = minimum_recent_add_playcount
-    
+
     categories = []
     for i in range(len(config['playlist_defaults']['categories'])):
         category = {
@@ -204,7 +208,6 @@ def generate_playlist():
         }
         categories.append(category)
     
-    # Update config with new category values
     config['playlist_defaults']['categories'] = categories
     
     # Save updated config to file
@@ -212,7 +215,17 @@ def generate_playlist():
         json.dump(config, f, indent=4)
 
     # Generate playlist logic...
+    app.logger.info("Instantiating PlaylistGenerator, then calling generate()")
     generator = PlaylistGenerator(playlist_name, playlist_length, minimum_recent_add_playcount, categories, current_user.username)
+
+    # Initialize artist_last_played based on user choice
+    if use_recent_playlist and recent_playlist_name:
+        # Fetch the recent playlist
+        recent_playlist = Playlist.query.filter_by(playlist_name=recent_playlist_name).first()
+        generator._initialize_artist_last_played(recent_playlist, stop_point)
+    else:
+        generator._initialize_artist_last_played(None, None)
+    
     try:
         playlist, stats = generator.generate()
         return jsonify({
@@ -227,6 +240,7 @@ def generate_playlist():
             'success': False,
             'message': f'Error generating playlist: {str(e)}'
         }), 500
+
     
 @app.route('/check_playlist_name')
 @login_required
@@ -392,9 +406,16 @@ def view_playlist(playlist_name):
     category_filter = request.args.get('category', '')
 
     # Build the query
-    query = Playlist.query.filter_by(
-        playlist_name=playlist_name, 
-        username=current_user.username
+    track_alias = aliased(Track)
+    query = db.session.query(
+        Playlist,
+        track_alias.last_play_dt
+    ).join(
+        track_alias, 
+        (Playlist.artist == track_alias.artist) & (Playlist.song == track_alias.song)
+    ).filter(
+        Playlist.playlist_name == playlist_name,
+        Playlist.username == current_user.username
     )
 
     # Apply filters
@@ -413,8 +434,8 @@ def view_playlist(playlist_name):
     
     # Get playlist information from the first track
     playlist_info = {
-        'playlist_name': playlist_tracks[0].playlist_name,
-        'playlist_date': playlist_tracks[0].playlist_date,
+        'playlist_name': playlist_tracks[0].Playlist.playlist_name,
+        'playlist_date': playlist_tracks[0].Playlist.playlist_date,
         'track_count': len(playlist_tracks)
     }
     
@@ -423,7 +444,7 @@ def view_playlist(playlist_name):
     total_tracks = len(playlist_tracks)
     
     for track in playlist_tracks:
-        category_counts[track.category] = category_counts.get(track.category, 0) + 1
+        category_counts[track.Playlist.category] = category_counts.get(track.Playlist.category, 0) + 1
     
     # Get the ordered list of categories from the configuration
     ordered_categories = [cat['name'] for cat in config['playlist_defaults']['categories']]
@@ -435,7 +456,10 @@ def view_playlist(playlist_name):
             percentage = (category_counts[category] / total_tracks) * 100
             category_percentages.append((category, percentage))
     
-    return render_template('playlist.html', playlist=playlist_info, tracks=playlist_tracks, category_percentages=category_percentages)
+    return render_template('playlist.html', 
+                           playlist=playlist_info, 
+                           tracks=playlist_tracks, 
+                           category_percentages=category_percentages)
 
 @app.route('/playlists')
 @login_required

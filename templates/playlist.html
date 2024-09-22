@@ -55,16 +55,18 @@
                     <th>Song</th>
                     <th>Category</th>
                     <th>Play Count</th>
+                    <th>Last Played</th>
                 </tr>
             </thead>
             <tbody>
                 {% for track in tracks %}
                 <tr>
-                    <td>{{ track.track_position }}</td>
-                    <td>{{ track.artist }}</td>
-                    <td>{{ track.song }}</td>
-                    <td>{{ track.category }}</td>
-                    <td>{{ track.play_cnt }}</td>
+                    <td>{{ track.Playlist.track_position }}</td>
+                    <td>{{ track.Playlist.artist }}</td>
+                    <td>{{ track.Playlist.song }}</td>
+                    <td>{{ track.Playlist.category }}</td>
+                    <td>{{ track.Playlist.play_cnt }}</td>
+                    <td>{{ track.last_play_dt }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

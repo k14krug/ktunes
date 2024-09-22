@@ -28,6 +28,7 @@
                                     <a href="{{ url_for('view_playlist', playlist_name=playlist.playlist_name) }}" class="btn btn-sm btn-outline-primary">View</a>
                                     <button onclick="uploadToItunes('{{ playlist.playlist_name }}')" class="btn btn-sm btn-outline-success">Upload to iTunes</button>
                                     <button onclick="deletePlaylist('{{ playlist.playlist_name }}')" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    <button onclick="exportToSpotify('{{ playlist.playlist_name }}')" class="btn btn-sm btn-outline-info">Export to Spotify</button>
                                 </div>
                             </td>
                         </tr>
@@ -71,6 +72,29 @@ function uploadToItunes(playlistName) {
                     alert('Playlist successfully uploaded to iTunes!');
                 } else {
                     alert('Error uploading playlist: ' + data.message);
+                }
+            })
+            .catch(error => alert('Error: ' + error));
+    }
+}
+
+function exportToSpotify(playlistName) {
+    if (confirm(`Are you sure you want to export ${playlistName} playlist to Spotify?`)) {
+        fetch(`/export_to_spotify/${playlistName}`, { method: 'POST' })
+            .then(response => {
+                if (response.status === 401) {
+                    // Authentication required, redirect to Spotify auth
+                    return response.json().then(data => {
+                        window.location.href = data.redirect;
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    alert('Playlist successfully exported to Spotify!');
+                } else {
+                    alert('Error exporting playlist: ' + data.message);
                 }
             })
             .catch(error => alert('Error: ' + error));

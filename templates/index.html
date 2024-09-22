@@ -23,7 +23,7 @@
             <div class="col-md-4">
                 <div class="form-group">
                     <label for="minimum_recent_add_playcount">Minimum Recent Add Playcount:</label>
-                    <input type="number" class="form-control" id="minimum_recent_add_playcount" name="minimum_recent_add_playcount" required  value="{{ config.minimum_recent_add_playcount }}">
+                    <input type="number" class="form-control" id="minimum_recent_add_playcount" name="minimum_recent_add_playcount" required value="{{ config.minimum_recent_add_playcount }}">
                 </div>
             </div>
         </div>
@@ -74,6 +74,21 @@
                 </tbody>
             </table>
         </div>
+
+        <!-- Checkbox for confirming recent playlist usage -->
+        {% if recent_playlist %}
+        <div class="form-group mt-4">
+            <label>
+                The most recent playlist is <strong>{{ recent_playlist.playlist_name }}</strong>, and the last played track was at position <strong>{{ stop_point }}</strong>.
+                Do you want to use this playlist and its track position to initialize artist_last_played?
+            </label>
+            <input type="checkbox" id="use_recent_playlist" name="use_recent_playlist" checked>
+        </div>
+        {% else %}
+        <div class="form-group mt-4">
+            <label>No recent playlist found.</label>
+        </div>
+        {% endif %}
 
         <button type="submit" class="btn btn-primary">Generate Playlist</button>
     </form>
