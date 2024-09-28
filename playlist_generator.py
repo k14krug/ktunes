@@ -1,7 +1,7 @@
 # playlist_generator.py
 from typing import List, Dict, Tuple, Any
 from sqlalchemy.sql import func
-from sqlalchemy import text, or_
+from sqlalchemy import text, or_, tuple_
 from sqlalchemy.orm import joinedload
 from models import db, Track, Playlist
 from datetime import datetime, timedelta
@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 
 class PlaylistGenerator:
     def __init__(self, playlist_name: str, playlist_length: int, minimum_recent_add_playcount: int, categories: List[Dict[str, Any]], username: str):
+
+        # Load all tracks into memory once during initialization
+        self.all_tracks = {track.id: track for track in db.session.query(Track).all()}
+        # Create a mapping for each category to tracks, so we can quickly filter by category
+        self.category_tracks = defaultdict(list)
+        for track in self.all_tracks.values():
+            self.category_tracks[track.category].append(track)
+
         """
         Initialize the PlaylistGenerator.
 
@@ -50,16 +58,19 @@ class PlaylistGenerator:
 
         :return: Tuple of the generated playlist and statistics
         """
-        #self.reset_play_counts()
+       
         self._prepare_virtual_categories()
         
         # Initialize artist_last_played from the most recent playlist is now done when the index page is initially displayed
+        # The flask app stores them in session variables. When the user actually generates a playlist, the session variables are passed to this function
         #self._initialize_artist_last_played()
         
         category_distribution = self._generate_category_distribution()
+        # Reset all tracks to 'played' = False at the start of a run
         Track.query.update({'played': False})
         
         for position, category in enumerate(category_distribution):
+            # Find the next eligible track for the category
             track = self._get_next_track(category)
             if track:
                 self.playlist.append({
@@ -76,7 +87,11 @@ class PlaylistGenerator:
         
         self._save_playlist_to_database()
         #self.save_play_counts()
+        start_save_time = datetime.now()
         self._create_m3u_file()
+        end_save_time = datetime.now()
+        save_time = end_save_time - start_save_time
+        print(f"Time to save playlist to M3U file: {save_time}")
         
         return self.playlist, self._get_statistics()
     
@@ -86,7 +101,7 @@ class PlaylistGenerator:
         # Go through the playlist and look for where the sequence matches
         for i in range(len(playlist) - 2):  # Minus 2 to avoid going out of bounds
             #print range we are looking at
-            print(f"Comparing: {playlist[i].song} to {recently_played_tracks[0].song} and {playlist[i+1].song} to {recently_played_tracks[1].song} and {playlist[i+2].song} to {recently_played_tracks[2].song}")      
+            #print(f"Comparing: {playlist[i].song} to {recently_played_tracks[0].song} and {playlist[i+1].song} to {recently_played_tracks[1].song} and {playlist[i+2].song} to {recently_played_tracks[2].song}")      
             
             if (
                 playlist[i].song == recently_played_tracks[2].song and
@@ -103,7 +118,9 @@ class PlaylistGenerator:
         Fetches the most recent playlist the user listened to and determines how far into the playlist
         the user has gotten by identifying the most recently played tracks. This method is used to give
         the user visibility into what the application believes is the last playlist and track position, 
-        so they can decide whether to use this data for initializing artist_last_played.
+        so they can decide whether to use this data for initializing artist_last_played. If used, the
+        artist_last_played dictionary will be updated to reflect the last played position of each artist
+        in the most recent playlist when the user submits the playlist generation form.
         
         Returns:
             latest_playlist (Playlist): The most recent playlist the user listened to, based on the playlist date.
@@ -225,12 +242,6 @@ class PlaylistGenerator:
         
         return counts
 
-    def reset_play_counts(self):
-        """Clear all existing play counts at the start of a run."""
-        #db.session.execute(text("TRUNCATE TABLE playlist_song_play_counts"))
-        db.session.commit()
-        logger.info("Cleared existing play counts")
-
     def _prepare_virtual_categories(self) -> None:
         """Prepare virtual categories by moving tracks between categories based on play count and age."""
         logger.info("Starting _prepare_virtual_categories")
@@ -241,6 +252,68 @@ class PlaylistGenerator:
         first_category = list(self.categories.keys())[1]
         second_category = list(self.categories.keys())[2]
         
+        logger.info(f"First category: {first_category}")
+        logger.info(f"Second category: {second_category}")
+
+        # Measure the time to query and modify recent tracks
+        start_recent_tracks_time = datetime.now()
+        recent_tracks = Track.query.filter(
+            Track.category == first_category,
+            or_(Track.play_cnt < self.minimum_recent_add_playcount, Track.play_cnt == None)
+        ).all()
+        query_time_recent = datetime.now() - start_recent_tracks_time
+        logger.info(f"Time to query recent tracks: {query_time_recent}")
+
+        modify_recent_tracks_time = datetime.now()
+        for track in recent_tracks:
+            track.category = 'RecentAdd'
+        update_time_recent = datetime.now() - modify_recent_tracks_time
+        logger.info(f"Time to update category for recent tracks: {update_time_recent}")
+
+        # Measure the time to query and modify old tracks
+        eighteen_months_ago = datetime.now() - timedelta(days=18*30)  # Approximation of 18 months
+        start_old_tracks_time = datetime.now()
+        old_tracks = Track.query.filter(
+            Track.category == first_category,
+            Track.date_added < eighteen_months_ago
+        ).all()
+        query_time_old = datetime.now() - start_old_tracks_time
+        logger.info(f"Time to query old tracks: {query_time_old}")
+
+        modify_old_tracks_time = datetime.now()
+        for track in old_tracks:
+            track.category = second_category
+        update_time_old = datetime.now() - modify_old_tracks_time
+        logger.info(f"Time to update category for old tracks: {update_time_old}")
+
+        # Commit changes to the database and measure the time
+        start_commit_time = datetime.now()
+        #db.session.commit()
+        commit_time = datetime.now() - start_commit_time
+        logger.info(f"Time to commit changes: {commit_time}")
+
+        # Incrementally update in-memory category tracks for only the moved tracks
+        start_memory_update_time = datetime.now()
+
+        # Remove moved tracks from their old categories
+        for track in recent_tracks:
+            if first_category in self.category_tracks and track in self.category_tracks[first_category]:
+                self.category_tracks[first_category].remove(track)
+        for track in old_tracks:
+            if first_category in self.category_tracks and track in self.category_tracks[first_category]:
+                self.category_tracks[first_category].remove(track)
+
+        # Add the moved tracks to their new categories
+        for track in recent_tracks:
+            self.category_tracks['RecentAdd'].append(track)
+        for track in old_tracks:
+            self.category_tracks[second_category].append(track)
+
+        memory_update_time = datetime.now() - start_memory_update_time
+        logger.info(f"Time to update in-memory categories incrementally: {memory_update_time}")
+
+        logger.info("Finished _prepare_virtual_categories")
+
         logger.info(f"First category: {first_category}")
         logger.info(f"Second category: {second_category}")
 
@@ -275,7 +348,7 @@ class PlaylistGenerator:
             count = Track.query.filter(Track.category == category).count()
             logger.info(f"Tracks in {category} after moving: {count}")
         
-        db.session.commit()
+        #db.session.commit()
         logger.info("Finished _prepare_virtual_categories")
 
     def _generate_category_distribution(self) -> List[str]:
@@ -289,41 +362,89 @@ class PlaylistGenerator:
             fractions[min_fraction_index] += 1 / self.category_counts[category]
         return distribution
     
-    def _get_next_track(self, category: str) -> Track:
-        if category == 'RecentAdd':
-            print(f"Getting next track for category: {category}")
-        """Get the next track for the given category."""
-        query = Track.query.filter(Track.category == category, Track.played == False)
 
-        current_position = len(self.playlist)
+    def _get_next_track(self, category: str, attempt: int = 0) -> Track:
+        # Retrieve tracks in the specified category from memory
+        category_tracks = self.category_tracks.get(category, [])
+        
+        # Filter tracks based on the played status
+        filtered_tracks = [track for track in category_tracks if not track.played]
+        
+        # Apply the existing artist repeat interval logic
+        current_position = len(self.playlist)  # Current position in the playlist
 
-        # Filter only artists that have been played (i.e., have non-zero last_played values)
+        # Remove artists that have been played too recently based on repeat intervals
         for artist, data in self.artist_last_played.items():
             last_played = data["last_played"]
-            # Only filter if the artist has been played (last_played != 0)
             if last_played != 0 and data["category"] == category:
                 repeat_interval = self.artist_max_repeat_interval.get(artist, 0)
                 if current_position - last_played < repeat_interval:
-                    query = query.filter(Track.artist_common_name != artist)
-                    if category == 'RecentAdd':
-                        print(f" Filter artist removed: {artist} last_played: {last_played}, repeat_interval: {repeat_interval} current_position: {current_position}")
-            else:
-                if (category == 'RecentAdd' and data["category"] == None) or  data["category"] == category:
-                    print(f" Filter Artist not removed: {artist}, last_played: {last_played}, repeat_interval: {repeat_interval} current_position: {current_position}")  
+                    # Filter out the artist
+                    filtered_tracks = [track for track in filtered_tracks if track.artist_common_name != artist]
+        
+        # Further refine the filtered tracks based on last played date
+        filtered_tracks.sort(key=lambda track: track.last_play_dt or datetime.min)
+        
+        # Select the first track that meets all conditions
+        track = filtered_tracks[0] if filtered_tracks else None
 
-        track = query.order_by(func.coalesce(Track.last_play_dt, datetime.min).asc()).first()
-        if category == 'RecentAdd':
-            eligible_tracks = query.order_by(func.coalesce(Track.last_play_dt, datetime.min).asc())
-            for e_track in eligible_tracks:
-                print(f"      Eligible track: {e_track.artist} - {e_track.song}")
-
-            
-
+        # If no track is found, handle reset logic
         if not track:
             logger.info(f"    WARNING: Resetting category: {category}")
+            if attempt >= 1:
+                logger.error(f"    ERROR: Could not find a track for category: {category} after reset")
+                raise RuntimeError(f"Could not find a track for category: {category} after reset")
+
             self._reset_category(category)
-            return self._get_next_track(category)
-        print(f"       Selected {track.artist} - {track.song} ")
+            return self._get_next_track(category, attempt + 1)
+
+        # Mark track as played in-memory
+        track.played = True
+        #print(f"       # #  #   S E L E C T E D    # # # {track.artist} - {track.song}  category: {category}")
+        return track
+
+
+
+
+
+
+
+
+
+
+        # and also have a dictionary of artist_max_repeat_interval that contains the maximum repeat interval for each artist
+        # We will filter out artists that have been played too recently based on the current position and their max repeat interval
+        
+        for artist, data in self.artist_last_played.items():
+            last_played = data["last_played"]
+            # If last_played is 0, it means the artist has not been added to the playlist yet
+            if last_played != 0:
+                if data["category"] == category:
+                    repeat_interval = self.artist_max_repeat_interval.get(artist, 0)
+                    if current_position - last_played < repeat_interval:
+                        # Filter out the artist
+                        query = query.filter(Track.artist_common_name != artist)
+                else:
+                    # This artist may be eligble, but lets check the other category.
+                    # Search self.playlist to find the last time the artist was played. If it was played too recently, filter it.
+                    for track in self.playlist:
+                        if track['artist_common_name'] == artist:
+                            if current_position - track['position'] < self.categories[data["category"]]['artist_repeat']:
+                                query = query.filter(Track.artist_common_name != artist)
+                                break
+
+        # Now that we've filtered out artists that have been played too recently, get the first track from the query when you sort by last_play_dt
+        track = query.order_by(func.coalesce(Track.last_play_dt, datetime.min).asc()).first()
+  
+        if not track:
+            logger.info(f"    WARNING: Resetting category: {category}")
+            if attempt >= 1:
+                logger.error(f"    ERROR: Could not find a track for category: {category} after reset")
+                raise RuntimeError(f"Could not find a track for category: {category} after reset")
+
+            self._reset_category(category)
+            return self._get_next_track(category, attempt + 1)
+        print(f"       # #  #   S E L E C T E D    # # # {track.artist} - {track.song}  category: {category}")
         return track
 
     def _get_next_category(self, current_category: str) -> str:
@@ -332,31 +453,25 @@ class PlaylistGenerator:
         current_index = categories.index(current_category)
         return categories[(current_index + 1) % len(categories)]
 
+
     def _reset_category(self, category: str) -> None:
         """Reset the 'played' status for all tracks in a category."""
-        Track.query.filter(Track.category == category).update({'played': False})
-        db.session.commit()
+        for track in self.category_tracks.get(category, []):
+            track.played = False
+
+
+
+
 
     def _update_play_counts(self, track: Track, category: str) -> None:
-        """Update play counts and last played information for a track."""
-        track.cat_cnt = (track.cat_cnt or 0) + 1
-        track.artist_cat_cnt = track.cat_cnt
+        # At this point, we have selected a track to add to the playlist. Mark it as played and update the play counts
+        
         track.played = True
-        # track.last_play_dt = datetime.utcnow()
-        
-        # Update in-memory play counts
-        key = (track.song, track.artist_common_name)
-        self.play_counts[key] += 1
-        
-        # Ensure the artist is in the artist_last_played dictionary
+
+        # Update artist_last_played for the artist but first need to insure the artist is in the dictionary. Else you get key error
         self.artist_last_played.setdefault(track.artist_common_name, {"last_played": -1, "category": category})
-        
-        # Update artist_last_played for all categories
-        self.artist_last_played[track.artist_common_name]["last_played"] = len(self.playlist)
-        
-        # Print debug information
-        if category == 'RecentAdd':
-            print(f"        Updated last_played for Artist: {track.artist_common_name} last played position: {self.artist_last_played[track.artist_common_name]['last_played']}")
+        #self.artist_last_played[track.artist_common_name]["last_played"] = len(self.playlist)
+        self.artist_last_played[track.artist_common_name].update({"last_played": len(self.playlist),"category": category})
         
         # Update artist_max_repeat_interval
         current_repeat_interval = self.categories[category]['artist_repeat']
@@ -367,6 +482,8 @@ class PlaylistGenerator:
 
     def _save_playlist_to_database(self) -> None:
         """Save the generated playlist to the database."""
+        # track time it takes to save playlist to database
+        start_save_time = datetime.now()
         print("Saving playlist to database")
         now = datetime.now(self.local_tz)  # Get current time in local timezone
         for track in self.playlist:
@@ -382,20 +499,39 @@ class PlaylistGenerator:
                 username=self.username
             )
             db.session.add(playlist_entry)
+        end_save_time = datetime.now()
+        save_time = end_save_time - start_save_time
         db.session.commit()
+        final_save_time = datetime.now() - end_save_time
+        print(f"Time to save playlist to database: {save_time}")
+        print(f"Time to commit playlist to database: {final_save_time}")
+
 
     def _create_m3u_file(self) -> None:
         """Create an M3U file for the generated playlist."""
+        # Step 1: Batch load all relevant tracks into a dictionary
+        track_keys = [(track['artist'], track['song']) for track in self.playlist]
+        # Use a single query to fetch all tracks matching the artist and song in the playlist
+        track_objs = Track.query.filter(tuple_(Track.artist, Track.song).in_(track_keys)).all()
+
+        # Create a lookup dictionary for quick access
+        track_dict = {(track.artist, track.song): track for track in track_objs}
+
+        # Step 2: Build the M3U file content in memory
+        m3u_content = ["#EXTM3U"]
+        for track in self.playlist:
+            track_obj = track_dict.get((track['artist'], track['song']))
+            if track_obj:
+                m3u_content.append(f"#EXTINF:{track['play_cnt']},{track['artist']} - {track['song']}")
+                m3u_content.append(f"#{track['category']}")
+                m3u_content.append(f"{track_obj.location}")
+            else:
+                logger.warning(f"Track not found in database: {track['artist']} - {track['song']}")
+
+        # Step 3: Write the M3U content to file in one go
         with open(f"{self.playlist_name}.m3u", "w") as m3u_file:
-            m3u_file.write("#EXTM3U\n")
-            for track in self.playlist:
-                track_obj = Track.query.filter_by(artist=track['artist'], song=track['song']).first()
-                if track_obj:
-                    m3u_file.write(f"#EXTINF:{track['play_cnt']},{track['artist']} - {track['song']}\n")
-                    m3u_file.write(f"#{track['category']}\n")
-                    m3u_file.write(f"{track_obj.location}\n")
-                else:
-                    logger.warning(f"Track not found in database: {track['artist']} - {track['song']}")
+            m3u_file.write("\n".join(m3u_content))
+
 
     def _get_statistics(self) -> Dict[str, Any]:
         """Get statistics for the generated playlist."""

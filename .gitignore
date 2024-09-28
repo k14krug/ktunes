@@ -1,0 +1,12 @@
+*.m3u
+*.pyc
+*.pyo
+*.rej
+*.orig
+*.bak
+*.swp
+instance/flask_session
+.cache
+*sqlite
+*.xml
+*.log
