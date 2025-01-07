@@ -24,10 +24,12 @@ class Track(db.Model):
     last_play_dt = Column(DateTime)
     date_added = Column(DateTime)
     play_cnt = Column(Integer, nullable=True)
-    cat_cnt = Column(Integer, nullable=True)
-    artist_cat_cnt = Column(Integer, nullable=True)
     played_sw = Column(String, nullable=True)
     artist_common_name = Column(String, nullable=True)
+    ktunes_last_play_dt = Column(DateTime)
+    ktunes_play_cnt = Column(Integer, nullable=True)
+    spotify_uri = Column(String, nullable=True)
+    most_recent_playlist = Column(String, nullable=True)
     # Alias for the played_sw column
     played = synonym('played_sw')
 

@@ -84,6 +84,7 @@
                     {% endif %}
                 </a>
             </th>
+            <th>Spotify Link</th>
         </tr>
     </thead>
     <tbody>
@@ -96,6 +97,13 @@
             <td>{{ track.play_cnt }}</td>
             <td>{{ track.date_added }}</td>
             <td>{{ track.last_play_dt }}</td>
+            <td>
+                {% if track.spotify_uri %}
+                <a href="https://open.spotify.com/track/{{ track.spotify_uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
+                {% else %}
+                N/A
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>

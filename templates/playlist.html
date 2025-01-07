@@ -7,24 +7,6 @@
     <p>Created on: {{ playlist.playlist_date.strftime('%Y-%m-%d %H:%M') }}</p>
     <p>Total tracks: {{ playlist.track_count }}</p>
 
-    <h2 class="mt-4 mb-3">Category Percentages</h2>
-    <div class="row">
-        {% for category, percentage in category_percentages %}
-        <div class="col-md-4 mb-3">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">{{ category }}</h5>
-                    <div class="progress">
-                        <div class="progress-bar" role="progressbar" style="width: {{ percentage }}%;" aria-valuenow="{{ percentage }}" aria-valuemin="0" aria-valuemax="100">
-                            {{ percentage|round(1) }}%
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
     <h2 class="mt-4 mb-3">Playlist Tracks</h2>
 
     <form method="get" action="{{ url_for('view_playlist', playlist_name=playlist.playlist_name) }}" class="mb-4">
@@ -45,6 +27,21 @@
         </div>
     </form>
 
+    <h2 class="mt-4 mb-3">Categories</h2>
+    <div class="container">
+        <div class="row text-center">
+            {% for category, percentage in category_percentages %}
+            <div class="col-sm-2 mb-2">
+                <span class="badge badge-primary d-block">{{ category }}</span>
+                <small class="text-muted">{{ percentage|round(1) }}%</small>
+                {% if category_repeats[category] > 1 %}
+                <div class="text-danger small">Repeats: {{ category_repeats[category] }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
     {% if tracks %}
     <div class="table-responsive">
         <table class="table table-striped">
@@ -56,6 +53,7 @@
                     <th>Category</th>
                     <th>Play Count</th>
                     <th>Last Played</th>
+                    <th>Spotify Link</th>
                 </tr>
             </thead>
             <tbody>
@@ -67,6 +65,13 @@
                     <td>{{ track.Playlist.category }}</td>
                     <td>{{ track.Playlist.play_cnt }}</td>
                     <td>{{ track.last_play_dt }}</td>
+                    <td>
+                        {% if track.spotify_uri %}
+                        <a href="https://open.spotify.com/track/{{ track.spotify_uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
+                        {% else %}
+                        N/A
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

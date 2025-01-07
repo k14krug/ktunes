@@ -9,4 +9,7 @@ instance/flask_session
 .cache
 *sqlite
 *.xml
+*.
+config.json
 *.log
+*.old

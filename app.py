@@ -2,18 +2,23 @@ import os
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort,session
 from flask_login import login_user, login_required, logout_user, current_user
 from flask_paginate import Pagination, get_page_parameter
+from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
 from itunes_xml_parser import ITunesXMLParser
-from itunes_integrator import iTunesIntegrator
+from itunes_integrator_wsl import iTunesIntegrator
 from playlist_generator import PlaylistGenerator
 from extensions import db, login_manager
-from flask_session import Session  # Add this import
-from datetime import timedelta  # Add this import
+from flask_session import Session  
+from datetime import timedelta, datetime  
 from sqlalchemy import func, distinct, desc
 from sqlalchemy.orm import aliased
 from spotify_integration import spotify_auth, spotify_callback, create_spotify_playlist, get_spotify_client
 from spotipy.oauth2 import SpotifyOAuth
+import spotipy
+import socket
+from spotify_integration import fetch_recent_tracks  
+#from spotify_client import SpotifyClient 
 
 app = Flask(__name__)
 app_root = os.path.abspath(os.path.dirname(__file__))
@@ -37,6 +42,7 @@ app.config['SPOTIPY_CLIENT_SECRET'] = 'eab0a2259cde4d98a6048305345ab19c'
 app.config['SPOTIPY_REDIRECT_URI'] = 'http://localhost:5010/callback'
 
 db.init_app(app)
+migrate = Migrate(app, db)
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
@@ -47,39 +53,53 @@ from models import User, Track, Playlist
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-def load_config():
-    if os.path.exists('config.json'):
-        with open('config.json', 'r') as f:
-            return json.load(f)
-    else:
-        # Default configuration
-        default_config = {
-            'itunes_dir': '',
-            'itunes_lib': 'iTunes Library.xml',
-            'playlist_defaults': {
-                'playlist_length': 40.0,
-                'minimum_recent_add_playcount': 15,
-                'categories': [
-                    {'name': 'RecentAdd', 'percentage': 25.0, 'artist_repeat': 21},
-                    {'name': 'Latest', 'percentage': 25.0, 'artist_repeat': 21},
-                    {'name': 'In Rot', 'percentage': 30.0, 'artist_repeat': 40},
-                    {'name': 'Other', 'percentage': 10.0, 'artist_repeat': 200},
-                    {'name': 'Old', 'percentage': 7.0, 'artist_repeat': 200},
-                    {'name': 'Album', 'percentage': 3.0, 'artist_repeat': 200}
-                ]
-            }
+def load_config(force_defaults=False):
+    default_config = {
+        'itunes_dir': '/mnt/c/Users/nwkru/Music/iTunes',
+        'itunes_lib': 'iTunes Library.xml',
+        'playlist_defaults': {
+            'playlist_length': 40.0,
+            'minimum_recent_add_playcount': 15,
+            'categories': [
+                {'name': 'RecentAdd', 'percentage': 25.0, 'artist_repeat': 21},
+                {'name': 'Latest', 'percentage': 25.0, 'artist_repeat': 21},
+                {'name': 'In Rot', 'percentage': 30.0, 'artist_repeat': 40},
+                {'name': 'Other', 'percentage': 10.0, 'artist_repeat': 200},
+                {'name': 'Old', 'percentage': 7.0, 'artist_repeat': 200},
+                {'name': 'Album', 'percentage': 3.0, 'artist_repeat': 200}
+            ]
         }
-        with open('config.json', 'w') as f:
-            json.dump(default_config, f, indent=4)
-        return default_config
+    }
+
+    config_path = 'config.json'
+
+    if force_defaults:
+        if os.path.exists(config_path):
+            print("Loading default config without rewriting the existing config file")
+            return default_config
+        else:
+            print("Creating default config file")
+            with open(config_path, 'w') as f:
+                json.dump(default_config, f, indent=4)
+            return default_config
+    else:
+        if os.path.exists(config_path):
+            print("Loading config from file")
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        else:
+            print("Creating default config file")
+            with open(config_path, 'w') as f:
+                json.dump(default_config, f, indent=4)
+            return default_config
 
 config = load_config()
 
 def update_database_from_xml_logic():
-    print(f"Updating database from iTunes XML located at {config['itunes_dir']} file {config['itunes_lib']}")
+    print(f"Updating database from iTunes XML located at {config['itunes_dir']}, file name '{config['itunes_lib']}'")
     xml_path = os.path.join(config['itunes_dir'], config['itunes_lib'])
     inserts, updates = 0, 0
-    if os.path.exists(xml_path):
+    if (os.path.exists(xml_path)):
         parser = ITunesXMLParser(xml_path)
         try:
             #print(f"Updating database from iTunes XML located at {xml_path}")
@@ -253,6 +273,10 @@ def check_playlist_name():
 @app.route('/tracks')
 @login_required
 def tracks():
+    sp = get_spotify_client()
+    if not sp:
+        return redirect(url_for('route_spotify_auth'))
+    
     page = request.args.get(get_page_parameter(), type=int, default=1)
     per_page = 50  # Number of tracks per page
 
@@ -369,6 +393,7 @@ def settings():
         # Update settings
         new_itunes_dir = request.form.get('itunes_dir', '').strip()
         new_itunes_lib = request.form.get('itunes_lib', '').strip()
+        print(f"A Updating settings with new iTunes directory: {new_itunes_dir}, library file: {new_itunes_lib}")
         
         # Validate inputs
         if not new_itunes_dir or not new_itunes_lib:
@@ -376,9 +401,11 @@ def settings():
         elif not os.path.isdir(new_itunes_dir):
             flash(f'Directory not found: {new_itunes_dir}', 'error')
         elif not os.path.isfile(os.path.join(new_itunes_dir, new_itunes_lib)):
-            flash(f'Library file not found: {new_itunes_lib}', 'error')
+            print(f'Library file "{new_itunes_lib}" not found in "{new_itunes_dir}"', 'error')
+            flash(f'Library file "{new_itunes_lib}" not found in "{new_itunes_dir}"', 'error')
         else:
             # Update config
+            print(f"B Updating config with new iTunes directory: {new_itunes_dir}, library file: {new_itunes_lib}")
             config['itunes_dir'] = new_itunes_dir
             config['itunes_lib'] = new_itunes_lib
             
@@ -400,25 +427,29 @@ def settings():
 @app.route('/playlist/<playlist_name>')
 @login_required
 def view_playlist(playlist_name):
+    sp = get_spotify_client()
+    if not sp:
+        return redirect(url_for('route_spotify_auth'))
+    
     # Get filter parameters
     song_filter = request.args.get('song', '')
     artist_filter = request.args.get('artist', '')
     category_filter = request.args.get('category', '')
 
-    # Build the query
-    track_alias = aliased(Track)
+    # Query to join Playlist and Track tables on artist and song
     query = db.session.query(
         Playlist,
-        track_alias.last_play_dt
+        Track.last_play_dt,
+        Track.spotify_uri
     ).join(
-        track_alias, 
-        (Playlist.artist == track_alias.artist) & (Playlist.song == track_alias.song)
+        Track, 
+        (Playlist.artist == Track.artist) & (Playlist.song == Track.song)
     ).filter(
         Playlist.playlist_name == playlist_name,
         Playlist.username == current_user.username
     )
 
-    # Apply filters
+    # Apply user filters
     if song_filter:
         query = query.filter(Playlist.song.ilike(f'%{song_filter}%'))
     if artist_filter:
@@ -442,7 +473,6 @@ def view_playlist(playlist_name):
     # Calculate category percentages
     category_counts = {}
     total_tracks = len(playlist_tracks)
-    
     for track in playlist_tracks:
         category_counts[track.Playlist.category] = category_counts.get(track.Playlist.category, 0) + 1
     
@@ -451,15 +481,26 @@ def view_playlist(playlist_name):
     
     # Create an ordered dictionary of category percentages
     category_percentages = []
+    category_repeats = {}
     for category in ordered_categories:
         if category in category_counts:
             percentage = (category_counts[category] / total_tracks) * 100
             category_percentages.append((category, percentage))
+            
+            # Calculate the maximum number of times any song repeats in the category
+            category_tracks = [track for track in playlist_tracks if track.Playlist.category == category]
+            song_repeat_counts = {}
+            for track in category_tracks:
+                song_key = (track.Playlist.artist, track.Playlist.song)
+                song_repeat_counts[song_key] = song_repeat_counts.get(song_key, 0) + 1
+            max_repeats = max(song_repeat_counts.values(), default=0)
+            category_repeats[category] = max_repeats
     
     return render_template('playlist.html', 
                            playlist=playlist_info, 
                            tracks=playlist_tracks, 
-                           category_percentages=category_percentages)
+                           category_percentages=category_percentages,
+                           category_repeats=category_repeats)  # Pass category repeats to the template
 
 @app.route('/playlists')
 @login_required
@@ -514,7 +555,6 @@ def upload_to_itunes(playlist_name):
     else:
         return jsonify({"success": False, "message": result_message}), 500
 
-# Add these routes to your app
 @app.route('/spotify_auth')
 @login_required
 def route_spotify_auth():
@@ -529,28 +569,188 @@ def route_callback():
 @app.route('/export_to_spotify/<playlist_name>', methods=['POST'])
 @login_required
 def export_to_spotify(playlist_name):
-    print(f"Exporting playlist {playlist_name} to Spotify")
+    print(f"Exporting playlist '{playlist_name}' to Spotify")
     sp = get_spotify_client()
     if not sp:
-        # User is not authenticated with Spotify, redirect to auth
-        print("Spotify client is None, returning 401 and redirect to spotify_auth")
-        return jsonify({"success": False, "redirect": url_for('route_spotify_auth')}), 401
+        return jsonify({"success": False, "redirect": spotify_auth()}), 401
 
-    print(f" Returned from getting sp client for playlist {playlist_name}")
     playlist_tracks = Playlist.query.filter_by(
-        username=current_user.username, 
+        username=current_user.username,
         playlist_name=playlist_name
     ).order_by(Playlist.track_position).all()
-    
-    success, result_message = create_spotify_playlist(playlist_name, playlist_tracks)
-    print(f"Spotify playlist created: {success}, {result_message}")
+
+    success, result = create_spotify_playlist(playlist_name, playlist_tracks, db)
+    failed_tracks = result.get("failed_tracks", [])
+    if failed_tracks:
+        print(f"Failed tracks: {failed_tracks}")
     if success:
-        return jsonify({"success": True, "message": result_message})
+        return jsonify({"success": True, "message": result["message"], "failed_tracks": failed_tracks})
     else:
-        return jsonify({"success": False, "message": result_message}), 500
+        return jsonify({"success": False, "message": result["message"], "failed_tracks": failed_tracks}), 500
+
+
+@app.route('/spotify_playlists')
+@login_required
+def spotify_playlists():
+    sp = get_spotify_client()
+    if not sp:
+        return redirect(url_for('route_spotify_auth'))
+
+    playlists = sp.current_user_playlists(limit=50)
+    result = []
+    for playlist in playlists['items']:
+        result.append({
+            "name": playlist['name'],
+            "owner": playlist['owner']['display_name'],
+            "id": playlist['id']
+        })
+    return jsonify({"playlists": result})
+    
+@app.route('/spotify_playlist/<playlist_id>')
+@login_required
+def spotify_playlist(playlist_id):
+    sp = get_spotify_client()
+    if not sp:
+        return redirect(url_for('route_spotify_auth'))
+    
+    try:
+        playlist = sp.playlist(playlist_id)
+        return jsonify(playlist)  # Return the entire JSON of the specified playlist
+    except Exception as e:
+        flash(f"Error retrieving playlist: {str(e)}", 'error')
+        return redirect(url_for('spotify_playlists'))
+
+@app.route('/recent_spotify_tracks')
+@login_required
+def recent_spotify_tracks():
+    print("Fetching recent Spotify tracks")
+    try:
+        tracks, error = fetch_recent_tracks(limit=50)
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('index'))
+        
+        # Define the date-time format used in the tracks.played_at value returned from fetch_recent_tracks
+        datetime_format = '%Y-%m-%d %H:%M:%S'
+        
+        # Check if each song is in the tracks table and get the last play date
+        for track in tracks:
+            # Filter the Track table by matching the third piece of the spotify_uri
+            db_track = Track.query.filter(Track.spotify_uri.like(f"%:{track['track_id']}")).first()
+
+            if db_track:
+                print(f"Track found in database: {track['track_name']} by {track['artist']}, last played: {db_track.last_play_dt}")
+                
+                # Parse the played_at value
+                played_at = datetime.strptime(track['played_at'], datetime_format)
+                
+                # Compare and update last_play_dt if played_at is greater or if last_play_dt is None
+                if db_track.last_play_dt is None or played_at > db_track.last_play_dt:
+                    db_track.last_play_dt = played_at
+                    db_track.play_cnt = (db_track.play_cnt or 0) + 1  # Increment play_cnt by 1
+                    db.session.commit()
+                    print(f"Updated last_play_dt for {track['track_name']} by {track['artist']} to {played_at}")
+                track['last_play_dt'] = db_track.last_play_dt
+            else:
+                print(f"Track not found in database: {track['track_name']} by {track['artist']}")
+                track['last_play_dt'] = None
+
+        return render_template('recent_spotify_tracks.html', tracks=tracks)
+    except spotipy.exceptions.SpotifyException as e:
+        flash(f"Error fetching recent tracks: {str(e)}", 'error')
+        return redirect(url_for('index'))
+
+
+
+def generate_default_playlist(playlist_name):
+    try:
+        # Use hard-coded default_config
+        config = load_config(force_defaults=True)
+        playlist_length = config['playlist_defaults']['playlist_length']
+        minimum_recent_add_playcount = config['playlist_defaults']['minimum_recent_add_playcount']
+        categories = config['playlist_defaults']['categories']
+        username = current_user.username
+
+        # Check if playlist already exists
+        existing_playlist = Playlist.query.filter_by(playlist_name=playlist_name, username=username).first()
+        
+        if existing_playlist:
+            # Delete existing playlist
+            Playlist.query.filter_by(playlist_name=playlist_name, username=username).delete()
+            db.session.commit()
+        
+        # Initialize PlaylistGenerator
+        generator = PlaylistGenerator(
+            playlist_name=playlist_name,
+            playlist_length=playlist_length,
+            minimum_recent_add_playcount=minimum_recent_add_playcount,
+            categories=categories,
+            username=username
+        )
+
+        # Now that we've initialized the PlaylistGenerator, we need to make sure we get back the latest config
+        config = load_config
+
+        # Initialize artist_last_played
+        generator._initialize_artist_last_played(None, None)
+
+        # Generate the playlist
+        playlist, stats = generator.generate()
+        print(f"Playlist '{playlist_name}' generated successfully. Stats: {stats}")
+
+        return True, f"Playlist '{playlist_name}' generated successfully."
+    
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return False, f"Error: {str(e)}"
+
+@app.route('/export_default_playlist_to_spotify')
+@login_required
+def export_default_playlist_to_spotify():
+    print("Exporting default playlist to Spotify")
+    playlist_name = "kTunes Radio " + datetime.now().strftime("%Y-%m-%d")
+    
+    success, message = generate_default_playlist(playlist_name)
+    
+    if success:
+        sp = get_spotify_client()
+        if not sp:
+            flash("Spotify client not authenticated.", 'error')
+            return redirect(url_for('index'))
+
+        playlist_tracks = Playlist.query.filter_by(
+            username=current_user.username,
+            playlist_name=playlist_name
+        ).order_by(Playlist.track_position).all()
+
+        success, result = create_spotify_playlist(playlist_name, playlist_tracks, db)
+        failed_tracks = result.get("failed_tracks", [])
+        if failed_tracks:
+            print(f"Failed tracks: {failed_tracks}")
+        if success:
+            flash(result["message"], 'success')
+        else:
+            flash(result["message"], 'error')
+    else:
+        flash(message, 'error')
+    
+    return redirect(url_for('playlists'))
+
+def find_open_port(start_port=5010, end_port=5500):
+    for port in range(start_port, end_port + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('localhost', port)) != 0:
+                return port
+    raise RuntimeError("No open ports available in the specified range")
 
 if __name__ == '__main__':
+    port = find_open_port()
+    print("# # # # # # # # # # # # # # # # #")
+    print(f"# Starting server on port {port}  #")
+    print("# # # # # # # # # # # # # # # # #")
+
+
     with app.app_context():
         db.create_all()
     update_database_from_xml_logic()
-    app.run(port=5010, debug=True, use_reloader=True)
+    app.run(port=port, debug=True, use_reloader=True)

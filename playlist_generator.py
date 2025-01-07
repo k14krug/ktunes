@@ -7,6 +7,7 @@ from models import db, Track, Playlist
 from datetime import datetime, timedelta
 import numpy as np
 import logging
+import os
 from collections import defaultdict
 from pytz import timezone
 from tzlocal import get_localzone
@@ -481,11 +482,16 @@ class PlaylistGenerator:
         )
 
     def _save_playlist_to_database(self) -> None:
-        """Save the generated playlist to the database."""
-        # track time it takes to save playlist to database
+        """Save the generated playlist to the database and update the most_recent_playlist field."""
+        # Track time it takes to save playlist to database
         start_save_time = datetime.now()
         print("Saving playlist to database")
         now = datetime.now(self.local_tz)  # Get current time in local timezone
+
+        # Create a list of playlist entries to add
+        playlist_entries = []
+        track_identifiers = [(track['artist'], track['song']) for track in self.playlist]
+
         for track in self.playlist:
             playlist_entry = Playlist(
                 playlist_name=self.playlist_name,
@@ -498,7 +504,20 @@ class PlaylistGenerator:
                 artist_common_name=track['artist_common_name'],
                 username=self.username
             )
-            db.session.add(playlist_entry)
+            playlist_entries.append(playlist_entry)
+
+        # Add all playlist entries in a single bulk operation
+        db.session.bulk_save_objects(playlist_entries)
+
+        # Fetch all relevant tracks in a single query
+        db_tracks = db.session.query(Track).filter(
+            tuple_(Track.artist, Track.song).in_(track_identifiers)
+        ).all()
+
+        # Update the most_recent_playlist field for all fetched tracks
+        for db_track in db_tracks:
+            db_track.most_recent_playlist = self.playlist_name
+
         end_save_time = datetime.now()
         save_time = end_save_time - start_save_time
         db.session.commit()
@@ -509,6 +528,10 @@ class PlaylistGenerator:
 
     def _create_m3u_file(self) -> None:
         """Create an M3U file for the generated playlist."""
+        # Ensure the playlists directory exists
+        playlists_dir = os.path.join(os.getcwd(), 'playlists')
+        os.makedirs(playlists_dir, exist_ok=True)
+
         # Step 1: Batch load all relevant tracks into a dictionary
         track_keys = [(track['artist'], track['song']) for track in self.playlist]
         # Use a single query to fetch all tracks matching the artist and song in the playlist
@@ -529,8 +552,11 @@ class PlaylistGenerator:
                 logger.warning(f"Track not found in database: {track['artist']} - {track['song']}")
 
         # Step 3: Write the M3U content to file in one go
-        with open(f"{self.playlist_name}.m3u", "w") as m3u_file:
+        m3u_file_path = os.path.join(playlists_dir, f"{self.playlist_name}.m3u")
+        with open(m3u_file_path, "w") as m3u_file:
             m3u_file.write("\n".join(m3u_content))
+        print(f"M3U file saved to {m3u_file_path}")
+
 
 
     def _get_statistics(self) -> Dict[str, Any]:

@@ -92,9 +92,23 @@ function exportToSpotify(playlistName) {
             })
             .then(data => {
                 if (data.success) {
-                    alert('Playlist successfully exported to Spotify!');
+                    let message = 'Playlist successfully exported to Spotify!';
+                    if (data.failed_tracks && data.failed_tracks.length > 0) {
+                        message += `\nHowever, some tracks couldn't be added:\n`;
+                        data.failed_tracks.forEach((track, index) => {
+                            message += `${index + 1}. ${track.song} by ${track.artist}\n`;
+                        });
+                    }
+                    alert(message);
                 } else {
-                    alert('Error exporting playlist: ' + data.message);
+                    let errorMessage = `Error exporting playlist: ${data.message}`;
+                    if (data.failed_tracks && data.failed_tracks.length > 0) {
+                        errorMessage += `\nThe following tracks couldn't be added:\n`;
+                        data.failed_tracks.forEach((track, index) => {
+                            errorMessage += `${index + 1}. ${track.song} by ${track.artist}\n`;
+                        });
+                    }
+                    alert(errorMessage);
                 }
             })
             .catch(error => alert('Error: ' + error));
