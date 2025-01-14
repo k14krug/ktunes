@@ -12,6 +12,15 @@ class CustomDateTime(db.TypeDecorator):
             return func.strftime('%Y-%m-%d %H:%M:%S', value)
         return value
 
+class SpotifyToken(db.Model):
+    __tablename__ = 'spotify_tokens'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    access_token = Column(String, nullable=False)
+    refresh_token = Column(String, nullable=False)
+    expires_at = Column(Integer, nullable=False)  # Store as a Unix timestamp
+
+
 class Track(db.Model):
     __tablename__ = 'tracks'
     
