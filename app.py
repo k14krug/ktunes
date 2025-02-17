@@ -1,19 +1,28 @@
 import os
+from dotenv import load_dotenv
 import socket
 import logging
-from flask import Flask
+from flask import Flask, redirect, url_for
 from flask_session import Session
 from datetime import timedelta
-
 from extensions import db, login_manager, scheduler, migrate, configure_scheduler
 from config_loader import load_config
 from services.itunes_service import update_database_from_xml_logic
 #from tasks.scheduled_tasks import export_default_playlist_to_spotify_task
 from models import User, SpotifyToken
 from blueprints.scheduler import scheduler_bp  
+from blueprints.auth import auth_bp
+from blueprints.spotify import spotify_bp
+from blueprints.main import main_bp
+#from blueprints.genres import genres_bp
 import app_context_holder # Module to hold the global app context for APScheduler tasks
 
 global_app = None
+
+# Load environment variables from .env file for thing like Spotify and OPENAI API keys
+# This must be done before the genres blueprint because it references the OPENAI_API_KEY
+load_dotenv()
+from blueprints.genres import genres_bp
 
 def configure_logging(app):
     """ Configure logging levels & format for both Flask and APScheduler logs. """
@@ -34,7 +43,7 @@ def configure_logging(app):
     apscheduler_logger.addHandler(apscheduler_file_handler)
 
 
-def create_app(app_debug):
+def create_app(app_debug=False):
     """ Application factory for creating and configuring the Flask app. """
     global global_app # Needed to access the app context in the APScheduler tasks
     app = Flask(__name__)
@@ -54,12 +63,19 @@ def create_app(app_debug):
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
     os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 
-    # Spotify config (unchanged)
-    app.config['SPOTIPY_CLIENT_ID'] = 'bf5b82bad95f4d94a19f3b0b22dced56'
-    app.config['SPOTIPY_CLIENT_SECRET'] = 'eab0a2259cde4d98a6048305345ab19c'
+    # Spotify config (from .env file)
+    app.config['SPOTIPY_CLIENT_ID'] = os.getenv("SPOTIPY_CLIENT_ID")
+    app.config['SPOTIPY_CLIENT_SECRET'] = os.getenv("SPOTIPY_CLIENT_SECRET")
     app.config['SPOTIPY_REDIRECT_URI'] = 'http://localhost:5010/callback'
 
-    # (Removed any 'SCHEDULER_API_ENABLED' or 'SCHEDULER_API_PREFIX' since we're not using flask_apscheduler)
+    # get openai api key
+    app.config['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY")
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise RuntimeError("OPENAI API key is not set in the environment variables!")
+
+    # kkrug 1/31/2025 - Added this line. See change_log.md
+    app.config.update(load_config())
 
     configure_logging(app)
 
@@ -67,12 +83,16 @@ def create_app(app_debug):
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
-    login_manager.login_view = 'login'
+    # kkrug 1/15/2025 - added the auth blueprint to the login view for fix a login issue
+    login_manager.login_view = 'auth.login'
     Session(app)
 
     # Configure & Start the native APScheduler
     # (uses the function from extensions.py that configures job stores)
     configure_scheduler(app)
+
+    
+    print("Template search paths:", app.jinja_loader.searchpath)
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -88,16 +108,28 @@ def create_app(app_debug):
         app.logger.debug("Performing Startup Tasks...")
         db.create_all()
         if not app_debug or not os.environ.get('WERKZEUG_RUN_MAIN'):
-            config = load_config()
-            update_database_from_xml_logic(config, db)
+            # kkrug 1/31/2025 - Commented out this line. See change_log.md
+            #config = load_config()
+            update_database_from_xml_logic(app.config, db)
 
-    # Register your routes
-    from routes import register_routes
-    register_routes(app)
+    # All routes are now registered in the blueprints
+    #from routes import register_routes
+    #register_routes(app)
 
     # Register your jobs
     register_jobs()
+
+    app.register_blueprint(main_bp, url_prefix='/main') 
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')  
+    app.register_blueprint(auth_bp, url_prefix='/auth')
+    app.register_blueprint(spotify_bp, url_prefix='/spotify')
+    app.register_blueprint(genres_bp, url_prefix='/genres')
+    print("Template search paths after all 5 blueprints registered:", app.jinja_loader.searchpath)
+
+    
+    @app.route('/')
+    def root():
+        return redirect(url_for('main.index'))
 
     app_context_holder.app = app #  Set the global reference in the holder module to the app for use in the APScheduler tasks
     
@@ -117,18 +149,10 @@ def register_jobs():
         id='export_default_playlist_to_spotify_hourly',
         func='tasks.scheduled_tasks:export_playlist_wrapper',  # top-level function
         trigger='interval',
-        minutes=5,
+        hours=6,
         replace_existing=True
     )
 
-    # If you want to schedule the test context job too:
-    scheduler.add_job(
-        id='test_context_job',
-        func='tasks.scheduled_tasks:test_context_wrapper',
-        trigger='interval',
-        minutes=60,
-        replace_existing=True
-    )
 
 def find_open_port(start_port=5010, end_port=5500):
     """Find an open port for the server to bind to."""
@@ -144,10 +168,12 @@ if __name__ == '__main__':
     app_debug = False
     app = create_app(app_debug)
 
-    port = find_open_port(5010, 5500)
+    port = find_open_port(5013, 5500)
 
     print("# # # # # # # # # # # # # # # # #")
     print(f"# Starting server on port {port}  #")
     print("# # # # # # # # # # # # # # # # #")
 
-    app.run(port=port, debug=app_debug)
+    app.run(host="0.0.0.0", port=port, debug=app_debug)
+
+    #app.run(port=port, debug=app_debug)

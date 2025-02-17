@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container">
+    <h1 class="mt-4">Manage Genres</h1>
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <form method="POST" action="{{ url_for('genres.manage_genres') }}">
+                {{ form.hidden_tag() }}
+                <div class="form-group">
+                    {{ form.name.label(class="form-label") }}
+                    {{ form.name(class="form-control", placeholder="Enter new genre name") }}
+                </div>
+                <button type="submit" class="btn btn-primary">Add Genre</button>
+            </form>
+        </div>
+    </div>
+    <hr>
+    <h2>Existing Genres</h2>
+    <table class="table table-striped mt-3">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for genre in genres %}
+            <tr>
+                <td>{{ genre.id }}</td>
+                <td>{{ genre.name }}</td>
+                <td>
+                    <form method="POST" action="{{ url_for('genres.delete_genre', genre_id=genre.id) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/genres.js') }}"></script>
+

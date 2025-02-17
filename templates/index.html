@@ -6,7 +6,7 @@
 <div class="container mt-5">
     <h1 id="playlist-generator" class="mb-4">Playlist Generator</h1>
 
-    <form id="generatePlaylistForm" method="POST" action="{{ url_for('generate_playlist') }}">
+    <form id="generatePlaylistForm" method="POST" action="{{ url_for('main.generate_playlist') }}">
         <div class="row mb-3">
             <div class="col-md-4">
                 <div class="form-group">
@@ -124,7 +124,7 @@ $(document).ready(function() {
         var formData = $(this).serialize();
         
         $.ajax({
-            url: "{{ url_for('generate_playlist') }}",
+            url: "{{ url_for('main.generate_playlist') }}",
             type: 'POST',
             data: formData,
             success: function(response) {
@@ -149,7 +149,7 @@ $(document).ready(function() {
         var formData = $('#generatePlaylistForm').serialize() + '&replace_existing=true';
         
         $.ajax({
-            url: "{{ url_for('generate_playlist') }}",
+            url: "{{ url_for('main.generate_playlist') }}",
             type: 'POST',
             data: formData,
             success: function(response) {

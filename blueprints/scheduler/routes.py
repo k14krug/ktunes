@@ -1,6 +1,9 @@
-from flask import jsonify, render_template
+from flask import jsonify, render_template, request, redirect, url_for, flash
 from . import scheduler_bp  
 from extensions import scheduler, job_status
+from flask_wtf.csrf import CSRFProtect
+
+csrf = CSRFProtect()
 
 @scheduler_bp.route('/jobs', methods=['GET'])
 def list_jobs():
@@ -19,7 +22,7 @@ def list_jobs():
 
 @scheduler_bp.route('/jobs/<job_id>', methods=['GET'])
 def get_job(job_id):
-    """
+    """f
     Get details of a specific job by ID.
     """
     job = scheduler.get_job(job_id)
@@ -32,8 +35,10 @@ def get_job(job_id):
         "trigger": str(job.trigger)
     })
 
+#
 
-@scheduler_bp.route('/jobs/<job_id>', methods=['DELETE'])
+@scheduler_bp.route('/jobs/<job_id>', methods=['DELETE', 'POST'])
+@csrf.exempt
 def delete_job(job_id):
     """
     Remove a specific job by ID.
@@ -43,7 +48,8 @@ def delete_job(job_id):
         return jsonify({"error": f"Job with ID {job_id} not found"}), 404
 
     scheduler.remove_job(job_id)
-    return jsonify({"message": f"Job {job_id} removed successfully"})
+    flash(f"Job {job_id} removed successfully", "success")
+    return redirect(url_for('scheduler_bp.dashboard'))
 
 
 @scheduler_bp.route('/jobs', methods=['POST'])

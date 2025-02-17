@@ -50,18 +50,20 @@
         </table>
     </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
     $(function() {
         $("#artist").autocomplete({
-            source: "/autocomplete/artists",
+            source: "{{ url_for('main.autocomplete_artists') }}",
             minLength: 2
         });
         $("#common_name").autocomplete({
-            source: "/autocomplete/common_names",
+            source: "{{ url_for('main.autocomplete_common_names') }}",
             minLength: 2
         });
     });
 </script>
-
 {% endblock %}
+

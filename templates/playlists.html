@@ -25,7 +25,7 @@
                             <td>{{ playlist.track_count }}</td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <a href="{{ url_for('view_playlist', playlist_name=playlist.playlist_name) }}" class="btn btn-sm btn-outline-primary">View</a>
+                                    <a href="{{ url_for('main.view_playlist', playlist_name=playlist.playlist_name) }}" class="btn btn-sm btn-outline-primary">View</a>
                                     <button onclick="uploadToItunes('{{ playlist.playlist_name }}')" class="btn btn-sm btn-outline-success">Upload to iTunes</button>
                                     <button onclick="deletePlaylist('{{ playlist.playlist_name }}')" class="btn btn-sm btn-outline-danger">Delete</button>
                                     <button onclick="exportToSpotify('{{ playlist.playlist_name }}')" class="btn btn-sm btn-outline-info">Export to Spotify</button>
@@ -43,7 +43,7 @@
                 {% for page in pagination.iter_pages() %}
                     {% if page %}
                         <li class="page-item {% if page == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('view_playlists', page=page) }}">{{ page }}</a>
+                            <a class="page-link" href="{{ url_for('main.view_playlists', page=page) }}">{{ page }}</a>
                         </li>
                     {% else %}
                         <li class="page-item disabled">
@@ -57,7 +57,7 @@
 
     {% else %}
         <div class="alert alert-info" role="alert">
-            You haven't created any playlists yet. <a href="{{ url_for('create_playlist') }}" class="alert-link">Create your first playlist</a>!
+            You haven't created any playlists yet. <a href="{{ url_for('main.create_playlist') }}" class="alert-link">Create your first playlist</a>!
         </div>
     {% endif %}
 </div>
@@ -117,7 +117,7 @@ function exportToSpotify(playlistName) {
 
 function deletePlaylist(playlistName) {
     if (confirm('Are you sure you want to delete this playlist?')) {
-        fetch(`/delete_playlist/${playlistName}`, {
+        fetch(`/main/delete_playlist/${playlistName}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

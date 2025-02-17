@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Tracks</h1>
 
-<form method="GET" action="{{ url_for('main.tracks') }}">
+<form method="GET" action="{{ url_for('genres.manage_genres') }}">
     <div class="form-row">
         <div class="form-group col-md-4">
             <input type="text" class="form-control" name="song" placeholder="Filter by Song" value="{{ request.args.get('song', '') }}">
@@ -12,6 +12,9 @@
         </div>
         <div class="form-group col-md-3">
             <input type="text" class="form-control" name="category" placeholder="Filter by Category" value="{{ request.args.get('category', '') }}">
+        </div>
+        <div class="form-group col-md-3">
+            <input type="text" class="form-control" name="genre" placeholder="Filter by Genre" value="{{ request.args.get('genre', '') }}">
         </div>
         <div class="form-group col-md-1">
             <button type="submit" class="btn btn-primary">Filter</button>
@@ -28,7 +31,7 @@
             {% set _ = sort_args.pop('sort', None) %}
             {% set _ = sort_args.pop('direction', None) %}
             <th>
-                <a href="{{ url_for('main.tracks', sort='song', direction='asc' if sort_column != 'song' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='song', direction='asc' if sort_column != 'song' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Song
                     {% if sort_column == 'song' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
@@ -36,7 +39,7 @@
                 </a>
             </th>
             <th>
-                <a href="{{ url_for('main.tracks', sort='artist', direction='asc' if sort_column != 'artist' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='artist', direction='asc' if sort_column != 'artist' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Artist
                     {% if sort_column == 'artist' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
@@ -44,7 +47,7 @@
                 </a>
             </th>
             <th>
-                <a href="{{ url_for('main.tracks', sort='album', direction='asc' if sort_column != 'album' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='album', direction='asc' if sort_column != 'album' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Album
                     {% if sort_column == 'album' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
@@ -52,7 +55,7 @@
                 </a>
             </th>
             <th>
-                <a href="{{ url_for('main.tracks', sort='category', direction='asc' if sort_column != 'category' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='category', direction='asc' if sort_column != 'category' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Category
                     {% if sort_column == 'category' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
@@ -60,7 +63,7 @@
                 </a>
             </th>
             <th>
-                <a href="{{ url_for('main.tracks', sort='play_cnt', direction='asc' if sort_column != 'play_cnt' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='play_cnt', direction='asc' if sort_column != 'play_cnt' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Play Count
                     {% if sort_column == 'play_cnt' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
@@ -68,7 +71,7 @@
                 </a>
             </th>
             <th>
-                <a href="{{ url_for('main.tracks', sort='date_added', direction='asc' if sort_column != 'date_added' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='date_added', direction='asc' if sort_column != 'date_added' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Date Added
                     {% if sort_column == 'date_added' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
@@ -76,17 +79,15 @@
                 </a>
             </th>
             <th>
-                <a href="{{ url_for('main.tracks', sort='last_play_dt', direction='asc' if sort_column != 'last_play_dt' or sort_direction == 'desc' else 'desc', **sort_args) }}">
+                <a href="{{ url_for('genres.manage_genres', sort='last_play_dt', direction='asc' if sort_column != 'last_play_dt' or sort_direction == 'desc' else 'desc', **sort_args) }}">
                     Last Played
                     {% if sort_column == 'last_play_dt' %}
                         <i class="fas fa-sort-{{ 'down' if sort_direction == 'asc' else 'up' }}"></i>
                     {% endif %}
                 </a>
             </th>
-            <th>Spotify ID</th>
             <th>Spotify Link</th>
             <th>Edit</th>
-            <th>Genres</th>
         </tr>
     </thead>
     <tbody>
@@ -101,13 +102,6 @@
             <td>{{ track.last_play_dt }}</td>
             <td>
                 {% if track.spotify_uri %}
-                {{ track.spotify_uri.split(':')[-1] }}
-                {% else %}
-                N/A
-                {% endif %}
-            </td>
-            <td>
-                {% if track.spotify_uri %}
                 <a href="https://open.spotify.com/track/{{ track.spotify_uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
                 {% else %}
                 N/A
@@ -116,15 +110,21 @@
             <td>
                 <a href="{{ url_for('main.edit_track', track_id=track.id) }}" class="btn btn-warning btn-sm">Edit</a>
             </td>
-            <td>
-                <a href="{{ url_for('genres.assign_genres_bulk', track_id=track.id) }}" class="btn btn-info btn-sm">Assign Genres</a>
-            </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+<div class="bulk-actions">
+    <button id="bulk-get-genres" class="btn btn-info">Get Genre Recommendations</button>
+    <button id="bulk-assign-genres" class="btn btn-success">Assign Genres</button>
+    <button id="bulk-remove-genres" class="btn btn-danger">Remove Genres</button>
+</div>
 
 <div class="pagination-wrapper">
     {{ pagination.links }}
 </div>
 {% endblock %}
+{% block extra_js %}
+    <script src="{{ url_for('genres.static', filename='genres.js') }}"></script>
+{% endblock %}
+

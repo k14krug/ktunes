@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container">
+    <h1 class="mt-4">Assign Genres to Track</h1>
+    <h3>Track: {{ track.song }}</h3>
+    <h4>Artist: {{ track.artist }}</h4>
+    <hr>
+
+    <!-- Form for assigning genres -->
+    <form method="POST" action="{{ url_for('genres.assign_genres', track_id=track.id) }}">
+        {{ form.hidden_tag() }}
+        
+        <!-- Multi-select dropdown for genres -->
+        <div class="form-group">
+            {{ form.genres.label(class="form-label") }}
+            {{ form.genres(class="form-control", multiple="multiple") }}
+        </div>
+        
+        <!-- Suggest Genres Button -->
+        <div class="form-group">
+            <button
+                type="button"
+                class="btn btn-info suggest-genres-btn"
+                data-track-id="{{ track.id }}"
+                data-track-name="{{ track.song }}"
+                data-track-artist="{{ track.artist }}">
+                Suggest Genres
+            </button>
+            <div id="suggestions-{{ track.id }}" class="mt-2">
+                <!-- Suggestions will appear here -->
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <button type="submit" class="btn btn-success">Save Changes</button>
+    </form>
+</div>
+{% endblock %}
