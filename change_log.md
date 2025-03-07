@@ -1,0 +1,7 @@
+1/31/2025 - I'm getting an error in main.generate_playsts route because "config is not defined. I think I ran into an issue with
+            config when I refactored into blueprints. Maybe it was a circular reference? In anycase I created a global variable in the main index route to get around this, but now I'm getting this new error. Copilot is going to try to walk me through reverting back to loading config in create app and then when/were we use "config" we set it with "config = current_app.config"
+            This caused an error when writing out the config because the config contained non-serializable components. So 
+            I needed to create a helper function in config_loader to select which keys of the config to write out(dump)
+3/7/2025 -  I'm only playing songs via Spotify and the KRUG FM playlist. I have an issue where I add a song to the playlist with a valid spotify_uri, but after I've actually listened to the song 
+            in spotitfy, the the app updateds recently played songs, sometimes the URI that was associated with a song in KRUG FM was not what recently played tracks says so it doesn't update
+            the last_played_dt so the song is immediatly readded to KRUG FM. I'm working with Cline Plan mode to come up with a solution. Hopefully it works!

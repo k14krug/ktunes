@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Edit Track</h1>
+<form method="POST">
+    <div class="form-group">
+        <label for="song">Song</label>
+        <input type="text" class="form-control" id="song" name="song" value="{{ track.song }}" required>
+    </div>
+    <div class="form-group">
+        <label for="artist">Artist</label>
+        <input type="text" class="form-control" id="artist" name="artist" value="{{ track.artist }}" required>
+    </div>
+    <div class="form-group">
+        <label for="album">Album</label>
+        <input type="text" class="form-control" id="album" name="album" value="{{ track.album }}">
+    </div>
+    <div class="form-group">
+        <label for="category">Category</label>
+        <input type="text" class="form-control" id="category" name="category" value="{{ track.category }}">
+    </div>
+    <div class="form-group">
+        <label for="play_cnt">Play Count</label>
+        <input type="number" class="form-control" id="play_cnt" name="play_cnt" value="{{ track.play_cnt }}">
+    </div>
+    <div class="form-group">
+        <label for="date_added">Date Added</label>
+        <input type="datetime-local" class="form-control" id="date_added" name="date_added" value="{{ track.date_added }}">
+    </div>
+    <div class="form-group">
+        <label for="last_play_dt">Last Played</label>
+        <input type="datetime-local" class="form-control" id="last_play_dt" name="last_play_dt" value="{{ track.last_play_dt }}">
+    </div>
+    <div class="form-group">
+        <label for="spotify_uri">Spotify URI</label>
+        <input type="text" class="form-control" id="spotify_uri" name="spotify_uri" value="{{ track.spotify_uri }}">
+    </div>
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a href="{{ url_for('main.tracks') }}" class="btn btn-secondary">Cancel</a>
+    <button type="submit" name="delete" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this track?');">Delete</button>
+</form>
+{% endblock %}

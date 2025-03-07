@@ -54,6 +54,8 @@ class Genre(db.Model):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False)
+    genre_type = Column(String, nullable=True)
+    track_count = Column(Integer, nullable=True)
     tracks = relationship('Track', secondary=track_genres, back_populates='genres')
 
 

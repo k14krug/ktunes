@@ -7,17 +7,17 @@
         "categories": [
             {
                 "name": "RecentAdd",
-                "percentage": 25.0,
-                "artist_repeat": 20
+                "percentage": 20.0,
+                "artist_repeat": 30
             },
             {
                 "name": "Latest",
                 "percentage": 25.0,
-                "artist_repeat": 20
+                "artist_repeat": 21
             },
             {
                 "name": "In Rot",
-                "percentage": 30.0,
+                "percentage": 35.0,
                 "artist_repeat": 40
             },
             {

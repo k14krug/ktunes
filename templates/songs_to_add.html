@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <h2>Songs to Add</h2>
+    <form method="post" action="{{ url_for('spotify.add_songs_to_tracks') }}">
+        <div class="sticky-top bg-white py-2">
+            <button type="submit" class="btn btn-primary">Add Selected Songs to Tracks</button>
+        </div>
+        <table class="table table-striped table-bordered" id="songsTable">
+            <thead>
+                <tr>
+                    <th scope="col">Select</th>
+                    <th scope="col"><a href="{{ url_for('spotify.songs_to_add', sort='name', direction='asc' if sort_column != 'name' or sort_direction == 'desc' else 'desc') }}">Song</a></th>
+                    <th scope="col"><a href="{{ url_for('spotify.songs_to_add', sort='artist', direction='asc' if sort_column != 'artist' or sort_direction == 'desc' else 'desc') }}">Artist</a></th>
+                    <th scope="col">Album</th>
+                    <th scope="col"><a href="{{ url_for('spotify.songs_to_add', sort='added_at', direction='asc' if sort_column != 'added_at' or sort_direction == 'desc' else 'desc') }}">Added At</a></th>
+                    <th scope="col">Track ID</th>
+                    <th scope="col">Date Added</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for track in tracks %}
+                <tr>
+                    <td>
+                        {% if not track.exists %}
+                        <input type="checkbox" name="track_ids" value="{{ track.id }}">
+                        {% endif %}
+                    </td>
+                    <td>{{ track.name }}</td>
+                    <td>{{ track.artist }}</td>
+                    <td>{{ track.album }}</td>
+                    <td>{{ track.added_at }}</td>
+                    <td><a href="https://open.spotify.com/track/{{ track.id }}" target="_blank">{{ track.id }}</a></td>
+                    <td>{{ track.date_added }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </form>
+</div>
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        $('#songsTable').DataTable({
+            "order": [[ 3, "desc" ]]
+        });
+    });
+</script>
+{% endblock %}
+{% endblock %}

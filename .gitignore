@@ -13,3 +13,4 @@ instance/flask_session
 config.json
 *.log
 *.old
+.env

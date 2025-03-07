@@ -1,10 +1,36 @@
-# itunes_xml_parser.py
+# itunes_service.py
 from libpytunes import Library
 from datetime import datetime, timezone
 from models import db, Track
 import logging
 #import pytz
 import time
+import os
+
+def update_database_from_xml_logic(config, db):
+    """
+    Update the database from the iTunes XML file specified in the config.
+
+    :param config: The application configuration containing the iTunes directory and library file.
+    :param db: The database instance to use for committing updates.
+    :return: A tuple of (updates: int, inserts: int) indicating the number of rows updated and inserted.
+    """
+    print(f"Updating database from iTunes XML located at {config['itunes_dir']}, file name '{config['itunes_lib']}'")
+    xml_path = os.path.join(config['itunes_dir'], config['itunes_lib'])
+    inserts, updates = 0, 0
+
+    if os.path.exists(xml_path):
+        parser = ITunesXMLParser(xml_path)
+        try:
+            updates, inserts = parser.update_database()
+            print(f"Database updated successfully: {updates} rows updated, {inserts} rows inserted.")
+        except Exception as e:
+            print(f"Error updating database from iTunes XML: {str(e)}")
+            raise
+    else:
+        print(f"iTunes XML file not found at {xml_path}")
+
+    return updates, inserts
 
 class ITunesXMLParser:
     def __init__(self, xml_path):
@@ -105,18 +131,19 @@ class ITunesXMLParser:
         parsed_date_added = self._parse_date(song.date_added)
 
         if track.location != song.location:
+            print(f"song {song.name} location changed from {track.location} to {song.location}")
             changes.append(f"location: {track.location} -> {song.location}")
             track.location = song.location
             updated = True
         if track.category != category:
+            #print(f"song {song.name} category changed from {track.category} to {category}")
             changes.append(f"category: {track.category} -> {category}")
             track.category = category
             updated = True
-
-
         if track.last_play_dt and parsed_last_play_dt:
             if isinstance(parsed_last_play_dt, datetime) and isinstance(track.last_play_dt, datetime):
                 if track.last_play_dt.replace(tzinfo=None) < parsed_last_play_dt.replace(microsecond=0, tzinfo=None):
+                    print(f"song {song.name} last_play_dt changed from {track.last_play_dt.replace(tzinfo=None)} to {parsed_last_play_dt.replace(microsecond=0)}")
                     changes.append(f"last_play_dt: {track.last_play_dt} -> {parsed_last_play_dt.replace(microsecond=0)}")
                     track.last_play_dt = parsed_last_play_dt.replace(microsecond=0)
                     updated = True

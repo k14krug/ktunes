@@ -1,9 +1,11 @@
-# playlist_generator.py
+# playlist_generator_service.py
+from flask_login import current_user
 from typing import List, Dict, Tuple, Any
 from sqlalchemy.sql import func
 from sqlalchemy import text, or_, tuple_
 from sqlalchemy.orm import joinedload
 from models import db, Track, Playlist
+from config_loader import load_config
 from datetime import datetime, timedelta
 import numpy as np
 import logging
@@ -14,6 +16,54 @@ from tzlocal import get_localzone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def generate_default_playlist(playlist_name, username=None):
+    """
+    Generate a default playlist using the PlaylistGenerator class.
+    Deletes an existing playlist if one exists with the same name for the current user.
+    This is called either from the UI or from a scheduled task (where use is not logged in)
+
+    :param playlist_name: Name of the playlist to generate.
+    :return: (bool, str) Tuple indicating success and a message.
+    """
+    try:
+        print(f"Start of generating_default_playlist '{playlist_name}', username: {username}")
+        # Load hardcoded default configuration
+        config = load_config(force_defaults=True)
+        playlist_length = config['playlist_defaults']['playlist_length']
+        minimum_recent_add_playcount = config['playlist_defaults']['minimum_recent_add_playcount']
+        categories = config['playlist_defaults']['categories']
+        # if called from a route then we'll user the current_user, else if from a scheduled task, the username must be passed in.
+        username = username or current_user.username
+        
+        # Check if a playlist with this name already exists
+        existing_playlist = Playlist.query.filter_by(playlist_name=playlist_name, username=username).first()
+        if existing_playlist:
+            # Delete the existing playlist
+            Playlist.query.filter_by(playlist_name=playlist_name, username=username).delete()
+            db.session.commit()
+        
+        # Initialize the PlaylistGenerator
+        generator = PlaylistGenerator(
+            playlist_name=playlist_name,
+            playlist_length=playlist_length,
+            minimum_recent_add_playcount=minimum_recent_add_playcount,
+            categories=categories,
+            username=username
+        )
+        # Initialize artist_last_played
+        generator._initialize_artist_last_played(None, None)
+
+        # Generate the playlist
+        playlist, stats = generator.generate()
+        print(f"Playlist '{playlist_name}' generated successfully. Stats: {stats}")
+
+        return True, f"Playlist '{playlist_name}' generated successfully."
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return False, f"Error: {str(e)}"
+
 
 class PlaylistGenerator:
     def __init__(self, playlist_name: str, playlist_length: int, minimum_recent_add_playcount: int, categories: List[Dict[str, Any]], username: str):
@@ -355,12 +405,13 @@ class PlaylistGenerator:
     def _generate_category_distribution(self) -> List[str]:
         """Generate a distribution of categories for the playlist."""
         distribution = []
-        fractions = [1 / count for count in self.category_counts.values()]
+        valid_categories = {cat: count for cat, count in self.category_counts.items() if count > 0}
+        fractions = [1 / count for count in valid_categories.values()]
         while len(distribution) < self.total_songs:
             min_fraction_index = np.argmin(fractions)
-            category = list(self.category_counts.keys())[min_fraction_index]
+            category = list(valid_categories.keys())[min_fraction_index]
             distribution.append(category)
-            fractions[min_fraction_index] += 1 / self.category_counts[category]
+            fractions[min_fraction_index] += 1 / valid_categories[category]
         return distribution
     
 
@@ -393,8 +444,11 @@ class PlaylistGenerator:
         if not track:
             logger.info(f"    WARNING: Resetting category: {category}")
             if attempt >= 1:
-                logger.error(f"    ERROR: Could not find a track for category: {category} after reset")
-                raise RuntimeError(f"Could not find a track for category: {category} after reset")
+                if category == 'RecentAdd':
+                    category = 'Latest'
+                else:
+                    logger.error(f"    ERROR: Could not find a track for category: {category} after reset")
+                    raise RuntimeError(f"Could not find a track for category: {category} after reset")
 
             self._reset_category(category)
             return self._get_next_track(category, attempt + 1)

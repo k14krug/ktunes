@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Scheduler Jobs Dashboard</h1>
+  <table class="table table-striped mt-3">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Next Run Time</th>
+        <th>Trigger</th>
+        <th>Last Status</th>
+        <th>Last Run Time</th>
+        <th>Actions</th> <!-- New column for actions -->
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+        <tr>
+          <td>{{ job.id }}</td>
+          <td>
+            {% if job.next_run_time %}
+              {{ job.next_run_time }}
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>{{ job.trigger }}</td>
+          <td>
+            {% if job_status[job.id] %}
+              {{ job_status[job.id].status }}
+            {% else %}
+              No record
+            {% endif %}
+          </td>
+          <td>
+            {% if job_status[job.id] and job_status[job.id].run_time %}
+              {{ job_status[job.id].run_time }}
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>
+            <form action="{{ url_for('apscheduler.delete_job', job_id=job.id) }}" method="post" style="display:inline;">
+              <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

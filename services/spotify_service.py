@@ -1,0 +1,595 @@
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from flask import current_app, session, url_for, request, redirect, jsonify
+from flask_login import current_user
+from models import Track, Playlist, SpotifyToken, PlayedTrack, db
+import time
+from datetime import datetime
+import pytz
+import json
+import os
+import base64
+from PIL import Image
+
+
+def get_spotify_client():
+    """
+    Get an authenticated Spotify client using SpotifyOAuth.
+    """
+    try:
+        sp_oauth = SpotifyOAuth(
+            client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+            client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+            redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
+            scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload",
+        )
+        return spotipy.Spotify(auth_manager=sp_oauth)
+    except Exception as e:
+        current_app.logger.error(f"Error creating Spotify client: {e}")
+        return None
+
+
+
+def spotify_auth():
+    """Redirect the user to Spotify authentication."""
+    sp_oauth = SpotifyOAuth(
+        client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+        client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+        redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
+        #scope="playlist-modify-public playlist-modify-private user-read-recently-played"
+        scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload"
+    )
+    auth_url = sp_oauth.get_authorize_url()
+    return url_for('route_callback', _external=True, _scheme='http')
+
+
+def spotify_callback():
+    """
+    Handle Spotify OAuth callback.
+    """
+    sp_oauth = SpotifyOAuth(
+        client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+        client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+        redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI']
+    )
+    code = request.args.get('code')
+    token_info = sp_oauth.get_access_token(code)
+    save_spotify_token(
+        token_info['access_token'],
+        token_info['refresh_token'],
+        token_info['expires_in']
+    )
+    return redirect(url_for('playlists'))
+
+def save_spotify_token(access_token, refresh_token, expires_in):
+    """
+    Save the Spotify token details to the database.
+    """
+    expires_at = int(time.time()) + expires_in
+    token = SpotifyToken.query.first()
+    if token:
+        token.access_token = access_token
+        token.refresh_token = refresh_token
+        token.expires_at = expires_at
+    else:
+        token = SpotifyToken(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at
+        )
+        db.session.add(token)
+    db.session.commit()
+
+def get_spotify_token():
+    """Fetch the Spotify token from the database."""
+    token = SpotifyToken.query.first()
+    if token:
+        pass
+        #current_app.logger.debug(f"Retrieved Spotify token: {token.access_token[:10]}...")  # Log partial token for debugging
+    else:
+        current_app.logger.warning("No Spotify token found in the database.")
+    return token
+'''
+def refresh_spotify_token(scope=None):
+    """
+    Refresh the Spotify token if it exists, or create a new one if it does not.
+    """
+    token = get_spotify_token()
+
+    # If no token exists, use OAuth to create a new one
+    if not token:
+        current_app.logger.info("No token in the database. Attempting to create a new token.")
+        try:
+            sp_oauth = SpotifyOAuth(
+                client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+                client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+                redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
+                scope=scope or "playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload"
+            )
+            auth_url = sp_oauth.get_authorize_url()
+            current_app.logger.info(f"Please authenticate Spotify via this URL: {auth_url}")
+            
+            print("Visit the above URL, authenticate, and paste the code here:")
+            auth_code = input("Enter the Spotify authorization code: ").strip()
+            
+            token_info = sp_oauth.get_access_token(auth_code)
+
+            # Save the token to the database
+            new_token = SpotifyToken(
+                access_token=token_info['access_token'],
+                refresh_token=token_info['refresh_token'],
+                expires_at=token_info['expires_at']
+            )
+            db.session.add(new_token)
+            db.session.commit()
+
+            current_app.logger.info("New Spotify token created and saved successfully.")
+            return new_token.access_token
+        except Exception as e:
+            current_app.logger.error(f"Error creating a new Spotify token: {e}")
+            return None  # Return None to indicate failure
+
+    # Check if the token is near expiration
+    current_time = time.time()
+    if token.expires_at - 60 > current_time:
+        return token.access_token  # Token is still valid
+
+    # Refresh the token using SpotifyOAuth
+    try:
+        sp_oauth = SpotifyOAuth(
+            client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+            client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+            redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
+            scope=scope or "playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload"
+        )
+        refreshed_token_info = sp_oauth.refresh_access_token(token.refresh_token)
+
+        # Update the token in the database
+        token.access_token = refreshed_token_info['access_token']
+        token.refresh_token = refreshed_token_info.get('refresh_token', token.refresh_token)
+        token.expires_at = refreshed_token_info['expires_at']
+        db.session.commit()
+
+        current_app.logger.info("Spotify token refreshed successfully.")
+        return token.access_token
+    except Exception as e:
+        current_app.logger.error(f"Error refreshing Spotify token: {e}")
+        return None  # Return None to indicate failure
+'''
+
+last_recent_played_at = None  # In-memory variable to track the last fetched played_at
+
+def fetch_and_update_recent_tracks(limit=50):   
+    """
+    Fetch recent Spotify tracks and update the database accordingly.
+
+    :param limit: The maximum number of recent tracks to fetch.
+    :return: A tuple of (tracks, error) where `tracks` contains the updated tracks, and `error` is None if successful.
+    """
+    global last_recent_played_at
+    current_app.logger.info(f"Starting fetch and update_recent_tracks with limit: {limit}")
+    try:
+        print("Checking the most recent track...")
+        # Fetch only the most recent track and compare it to the last time we did this check. If its newer we'll get the last 50, else no need to go further
+        single_track_list, error = fetch_recent_tracks(limit=1)
+        if error:
+            print(f"Error returned from fetch_recent_tracks: {error}")  
+            return None, error
+        if not single_track_list:
+            print("No recent track found.")
+            return [], None
+        
+        # single_track_list[0] should be the most recent
+        most_recent_track = single_track_list[0]
+        played_at_raw = most_recent_track.get('played_at')
+        datetime_format = '%Y-%m-%d %H:%M:%S'
+        most_recent_track_time = datetime.strptime(played_at_raw, datetime_format)
+
+        # Compare with our in-memory last_recent_played_at
+        if last_recent_played_at and most_recent_track_time <= last_recent_played_at:
+            print(f"No new track since last check({last_recent_played_at}). Exiting.")
+            return [], None
+        else:
+            print(f"New track found since last check: {most_recent_track.get('track_name', 'UNKNOWN')} by {most_recent_track.get('artist', 'UNKNOWN')}, previously at {last_recent_played_at}")    
+        
+        # Update our last_recent_played_at with the new track time
+        last_recent_played_at = most_recent_track_time        
+        
+        #print(f"Starting fetch_and_update_recent_tracks with limit: {limit}")
+
+        # Step 1: Fetch recent tracks
+        print("Calling fetch_recent_tracks...")
+        tracks, error = fetch_recent_tracks(limit=limit)
+        print("Fetch recent tracks completed.")
+
+        if error:
+            print(f"Error returned from fetch_recent_tracks: {error}")
+            return None, error
+
+        if not tracks:
+            print("No tracks fetched.")
+            return [], None
+
+        datetime_format = '%Y-%m-%d %H:%M:%S'
+        pacific_tz = pytz.timezone('America/Los_Angeles')
+        current_local_time = datetime.now(pacific_tz)  # Get the current local time
+
+        print(f"Processing {limit} fetched tracks...")
+        for i, track in enumerate(tracks, start=1):
+            
+            played_at_raw = track.get('played_at', 'MISSING')
+            played_at_pacific = datetime.strptime(played_at_raw, datetime_format)
+            # It appears that spotify is returning the time in local time, so we don't need to convert it
+            #played_at_pacific = played_at_utc.replace(tzinfo=pytz.utc).astimezone(pacific_tz)
+            output= f"FaURT Track {i} played at  {played_at_pacific}"
+
+            # Check if the track already exists in the played_tracks table
+            existing_track = PlayedTrack.query.filter_by(
+                source='spotify',
+                spotify_id=track['track_id'],
+                played_at=played_at_pacific
+            ).first()
+
+            if not existing_track:
+                # Insert the new played track
+                db_track = Track.query.filter(Track.spotify_uri.like(f"%:{track['track_id']}")).first()
+                category = db_track.category if db_track else "None"
+
+                new_played_track = PlayedTrack(
+                    source='spotify',
+                    artist=track['artist'],
+                    song=track['track_name'],
+                    spotify_id=track['track_id'],
+                    played_at=played_at_pacific,
+                    category=category,
+                    playlist_name=track.get('playlist'),
+                    created_at=current_local_time  # Set created_at to the current local time
+                )
+                db.session.add(new_played_track)
+                db.session.commit()
+                output += " Inserted track "
+
+            else:
+                output += " Already exists in played_tracks"
+            print(f"{output} {track.get('track_name', 'UNKNOWN')} by {track.get('artist', 'UNKNOWN')}")
+
+        print("All tracks processed successfully.")
+        return tracks, None
+    except Exception as e:
+        print(f"Unexpected error in fetch_and_update_recent_tracks: {str(e)}")
+        return None, str(e)
+
+    
+def export_playlist_to_spotify(playlist_name, username=None):
+    """
+    Export a playlist to Spotify.
+
+    :param playlist_name: The name of the playlist to export.
+    :param db: The database session.
+    :param username: (Optional) The username to fetch the playlist for. Defaults to the current user.
+    :return: A tuple (success: bool, result: dict).
+    """
+    try:
+        # Get Spotify client
+        sp = get_spotify_client()
+        if not sp:
+            return False, {"message": "Spotify client not authenticated.", "redirect": spotify_auth()}
+
+        # Use the provided username or default to the current user
+        username = username or current_user.username
+        print(f"Starting export_playlist_to_spotify for playlist: {playlist_name} and username: {username}")
+    
+        # Fetch tracks for the playlist
+        playlist_tracks = Playlist.query.filter_by(
+            username=username,
+            playlist_name=playlist_name
+        ).order_by(Playlist.track_position).all()
+
+        # Create Spotify playlist
+        success, result = create_spotify_playlist(playlist_name, playlist_tracks, db)
+        return success, result
+
+    except Exception as e:
+        print(f"Error exporting playlist '{playlist_name}' to Spotify: {str(e)}")
+        return False, {"message": f"Error: {str(e)}"}
+
+def list_playlists():
+    sp = get_spotify_client()
+    if not sp:
+        return False, "Spotify client not authenticated."
+
+    playlists = sp.current_user_playlists(limit=50)
+    result = []
+    for playlist in playlists['items']:
+        result.append({
+            "name": playlist['name'],
+            "owner": playlist['owner']['display_name'],
+            "id": playlist['id']
+        })
+    return jsonify({"playlists": result})
+
+def document_mismatches(mismatches, filename='mismatch.json'):
+    """
+    Handle mismatches by writing them to a JSON file and printing them.
+
+    :param mismatches: List of mismatches to handle.
+    :param filename: Name of the JSON file to write mismatches to.
+    """
+    # Print mismatches
+    for mismatch in mismatches:
+        print(f"Mismatch found:")
+        print(f"  Searched for: {mismatch['searched_for']}")
+        print(f"  Found: {mismatch['found']}")
+        print(f"  Spotify URL: {mismatch['spotify_url']}")   
+    
+    # Write mismatches to JSON file
+    if os.path.exists(filename):
+        with open(filename, 'r+') as file:
+            existing_data = json.load(file)
+            existing_data.extend(mismatches)
+            file.seek(0)
+            json.dump(existing_data, file, indent=4)
+    else:
+        with open(filename, 'w') as file:
+            json.dump(mismatches, file, indent=4)
+
+def add_to_not_in_spotify(song, artist, track_id, filename='not_in_spotify.json'):
+    """
+    Add a song that isn't found on Spotify to a JSON file.
+
+    :param song: Name of the song.
+    :param artist: Name of the artist.
+    :param track_id: ID of the track.
+    :param filename: Name of the JSON file to write to.
+    """
+    entry = {
+        'song': song,
+        'artist': artist,
+        'track_id': track_id
+    }
+
+    if os.path.exists(filename):
+        with open(filename, 'r+') as file:
+            existing_data = json.load(file)
+            existing_data.append(entry)
+            file.seek(0)
+            json.dump(existing_data, file, indent=4)
+    else:
+        with open(filename, 'w') as file:
+            json.dump([entry], file, indent=4)
+
+def is_in_not_in_spotify(song, artist, filename='not_in_spotify.json'):
+    """
+    Check if a song is in the not_in_spotify.json file.
+
+    :param song: Name of the song.
+    :param artist: Name of the artist.
+    :param filename: Name of the JSON file to read from.
+    :return: True if the song is in the JSON file, False otherwise.
+    """
+    if os.path.exists(filename):
+        with open(filename, 'r') as file:
+            existing_data = json.load(file)
+            for entry in existing_data:
+                if entry['song'].lower() == song.lower() and entry['artist'].lower() == artist.lower():
+                    return True
+    return False
+
+def create_spotify_playlist(playlist_name, tracks, db, public=True):
+    """Create or replace the 'kTunes' playlist on Spotify and add tracks."""
+    print(f"Starting create_spotify_playlist: {playlist_name}")
+    mismatches = []
+    sp = get_spotify_client()
+    if not sp:
+        return False, "Spotify client not authenticated."
+
+    user_id = sp.me()['id']
+    
+    existing_playlist_id = None
+    playlists = sp.current_user_playlists(limit=50)
+    for playlist in playlists['items']:
+        if playlist['name'] == playlist_name:
+            existing_playlist_id = playlist['id']
+            break
+
+    # If the playlist exists, remove all its current songs
+    if existing_playlist_id:
+        print(f"Removing all songs from existing playlist: {playlist_name}")
+        sp.playlist_replace_items(existing_playlist_id, [])
+        playlist_id = existing_playlist_id
+    else:
+        playlist = sp.user_playlist_create(user_id, playlist_name, public=public)
+        playlist_id = playlist['id']
+        print(f"Creating new playlist: {playlist_name}")
+
+    if playlist_name.startswith("KRUG"):
+        now = datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%B %d, %Y %I:%M %p")
+        description = f"Curated for nostalgic souls who love newer music. Updated {now}."
+        sp.playlist_change_details(playlist_id, description=description)
+        # Load and upload the image
+        print(f"Uploading image to playlist: {playlist_name}")
+        image_path = '/home/kkrug/projects/ktunes/krugfm96.2v2.jpg'
+        try:
+            # Encode the image to Base64
+            encoded_image = encode_image_to_base64(image_path)
+            if not encoded_image:
+                print("Failed to encode image to Base64. Aborting.")
+                return False, "Failed to encode image to Base64."
+
+            # Upload the Base64-encoded image
+            sp.playlist_upload_cover_image(playlist_id, encoded_image)
+            print(f"Uploaded image to playlist: {playlist_name}")
+        except Exception as e:
+            print(f"Error uploading playlist image: {e}")
+            return False, f"Error uploading playlist image: {e}"
+
+    track_uris = []
+    failed_tracks = []
+    excluded_artists = {"Radio Promo", "Liam"}  # Artists to exclude from failure rule
+    print(f"Processing {len(tracks)} tracks")
+    for track in tracks:
+        db_track = db.session.query(Track).filter_by(song=track.song, artist=track.artist).first()
+
+        if db_track and db_track.spotify_uri:
+            track_uris.append(db_track.spotify_uri)
+        else:
+            if track.artist not in excluded_artists and not is_in_not_in_spotify(track.song, track.artist):
+                query = f"{track.song} artist:{track.artist}"
+                print(f"Searching Spotify for: {query}")
+                results = sp.search(q=query, type='track', limit=1)
+
+                if results['tracks']['items']:
+                    spotify_track = results['tracks']['items'][0]
+                    spotify_uri = spotify_track['uri']
+                    spotify_song = spotify_track['name']
+                    spotify_artist = ', '.join(artist['name'] for artist in spotify_track['artists'])
+                    spotify_api_url = spotify_track['href']  # API URL for the song
+                    spotify_url = spotify_track['external_urls']['spotify']  # Spotify URL for the song
+
+                    # Compare the retrieved song and artist with the search query
+                    if spotify_song.lower() != track.song.lower() or spotify_artist.lower() != track.artist.lower():
+                        mismatch = {
+                            'searched_for': f"{track.song} by {track.artist}",
+                            'found': f"{spotify_song} by {spotify_artist}",
+                            'spotify_url': spotify_url,
+                            'track_id': db_track.id if db_track else None
+                        }
+                        mismatches.append(mismatch)
+
+                    print(f"  Found URI on Spotify: {spotify_uri}")
+                    track_uris.append(spotify_uri)
+
+                    if db_track:
+                        db_track.spotify_uri = spotify_uri
+                        db.session.commit()
+                else:
+                    if track.artist not in excluded_artists:
+                        print(f"  Failed to find track on Spotify: {track.song} by {track.artist}")
+                        failed_tracks.append({"song": track.song, "artist": track.artist})
+                        add_to_not_in_spotify(track.song, track.artist, db_track.id if db_track else None)  
+                    else:
+                        print(f"  Skipping failure count for track: {track.song} by {track.artist}")
+
+        # Stop if more than 10 non-excluded tracks have failed
+        if len(failed_tracks) > 10:
+            print("Too many tracks failed. Deleting playlist.")
+            sp.current_user_unfollow_playlist(playlist_id)
+            return False, {
+                "message": f"Playlist '{playlist_name}' could not be created. Too many tracks were not found.",
+                "failed_tracks": failed_tracks,
+            }
+        
+    # Handle mismatches if any are found
+    if mismatches:
+        document_mismatches(mismatches)
+
+    # Add found tracks to the playlist
+    if track_uris:
+        try:
+            for i in range(0, len(track_uris), 100):
+                sp.playlist_add_items(playlist_id, track_uris[i:i+100])
+
+            if failed_tracks:
+                return True, {
+                    "message": f"Playlist '{playlist_name}' created successfully, but some tracks were not found.",
+                    "failed_tracks": failed_tracks,
+                }
+            else:
+                return True, {
+                    "message": f"Playlist '{playlist_name}' created successfully.",
+                    "failed_tracks": [],
+                }
+        except Exception as e:
+            print(f"Error adding tracks to playlist: {e}")
+            sp.current_user_unfollow_playlist(playlist_id)
+            return False, {
+                "message": f"Error creating playlist: {e}",
+                "failed_tracks": failed_tracks,
+            }
+    else:
+        print("No tracks found to add to the playlist. Deleting playlist.")
+        sp.current_user_unfollow_playlist(playlist_id)
+        return False, {
+            "message": f"Playlist '{playlist_name}' could not be created. No tracks were found.",
+            "failed_tracks": failed_tracks,
+        }
+
+def encode_image_to_base64(image_path):
+    """
+    Encodes an image file to a Base64 string.
+
+    :param image_path: Path to the image file
+    :return: Base64-encoded string, or None if encoding fails
+    """
+    try:
+        with open(image_path, 'rb') as image_file:
+            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+        return encoded_image
+    except Exception as e:
+        print(f"Error encoding image to Base64: {e}")
+        return None
+
+def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
+    """Fetch the most recently played tracks from Spotify."""
+    sp = get_spotify_client()
+    if not sp:
+        return None, "Spotify client not authenticated."
+    try:
+        results = sp.current_user_recently_played(limit=limit)
+        recent_tracks = []
+        ktunes_playlist_uri = None  # Cache for the ktunes playlist URI
+        local_tz = pytz.timezone('America/Los_Angeles')  # Replace with your local timezone
+        while results:
+            for item in results['items']:
+                track_name = item['track']['name']
+                artist_name = ', '.join(artist['name'] for artist in item['track']['artists'])
+                played_at_utc = datetime.strptime(item['played_at'], "%Y-%m-%dT%H:%M:%S.%fZ")
+                played_at_local = played_at_utc.replace(tzinfo=pytz.utc).astimezone(local_tz).strftime("%Y-%m-%d %H:%M:%S")
+                track_id = item['track']['id']
+
+                # Determine if the track is associated with a playlist
+                context = item.get('context')
+                playlist_name = None
+                if context and context.get('type') == 'playlist':
+                    playlist_uri = context['uri']
+                    if ktunes_playlist_uri and playlist_uri == ktunes_playlist_uri:
+                        playlist_name = ktunes_playlist_name
+                    else:
+                        try:
+                            playlist_name = sp.playlist(playlist_uri)['name']
+                            if playlist_name == ktunes_playlist_name:
+                                ktunes_playlist_uri = playlist_uri
+                        except:
+                            # kkrug 2/11/2025 track played on spotify that likely isn't currently in ktunes and hasn't been added to a playlist (yet)
+                            #print(f"Error fetching playlist for {artist_name} {track_name} {context}: {e}")
+                            playlist_name = "Unknown Playlist"
+
+                recent_tracks.append({
+                    'track_name': track_name,
+                    'artist': artist_name,
+                    'played_at': played_at_local,
+                    'playlist': playlist_name,
+                    'track_id': track_id
+                })
+
+                # Check and update the tracks table
+                db_track = Track.query.filter_by(spotify_uri=f"spotify:track:{track_id}").first()
+                if db_track:
+                    played_at_dt = datetime.strptime(played_at_local, "%Y-%m-%d %H:%M:%S")
+                    if not db_track.last_play_dt or played_at_dt > db_track.last_play_dt:
+                        db_track.last_play_dt = played_at_dt
+                        db_track.play_cnt = (db_track.play_cnt or 0) + 1
+                        db.session.commit()
+                        print(f"Based on sptofiy recently played tracks, updated track: {track_name} by {artist_name} | New last_play_dt: {db_track.last_play_dt}, New play_cnt: {db_track.play_cnt}")
+
+            if len(recent_tracks) >= limit or not results['next']:
+                break
+            results = sp.next(results)
+
+        return recent_tracks[:limit], None
+    except spotipy.exceptions.SpotifyException as e:
+        if e.http_status == 404:
+            return None, "Resource not found."
+        return None, f"Error fetching recent tracks: {str(e)}"
+
+

@@ -17,6 +17,7 @@ from blueprints.main import main_bp
 #from blueprints.genres import genres_bp
 import app_context_holder # Module to hold the global app context for APScheduler tasks
 
+
 global_app = None
 
 # Load environment variables from .env file for thing like Spotify and OPENAI API keys
@@ -47,6 +48,8 @@ def create_app(app_debug=False):
     """ Application factory for creating and configuring the Flask app. """
     global global_app # Needed to access the app context in the APScheduler tasks
     app = Flask(__name__)
+    app_context_holder.set_app(app)
+
 
     # Set up instance path
     app_root = os.path.abspath(os.path.dirname(__file__))
@@ -117,6 +120,7 @@ def create_app(app_debug=False):
     #register_routes(app)
 
     # Register your jobs
+    print("Registering jobs")
     register_jobs()
 
     app.register_blueprint(main_bp, url_prefix='/main') 
@@ -144,7 +148,7 @@ def register_jobs():
         func='tasks.scheduled_tasks:export_playlist_wrapper'
     )
 
-    # run the export_default_playlist_to_spotify_task every 60 minutes
+    # run the export_default_playlist_to_spotify_task every 6 hours
     scheduler.add_job(
         id='export_default_playlist_to_spotify_hourly',
         func='tasks.scheduled_tasks:export_playlist_wrapper',  # top-level function
