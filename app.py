@@ -44,6 +44,12 @@ def configure_logging(app):
     apscheduler_logger.addHandler(apscheduler_file_handler)
 
 
+def format_datetime(value, format='%Y-%m-%d %H:%M:%S'):
+    if value is None:
+        return ""
+    return value.strftime(format)
+
+
 def create_app(app_debug=False):
     """ Application factory for creating and configuring the Flask app. """
     global global_app # Needed to access the app context in the APScheduler tasks
@@ -130,6 +136,9 @@ def create_app(app_debug=False):
     app.register_blueprint(genres_bp, url_prefix='/genres')
     print("Template search paths after all 5 blueprints registered:", app.jinja_loader.searchpath)
 
+    # Register the datetime filter
+    app.jinja_env.filters['format_datetime'] = format_datetime
+
     
     @app.route('/')
     def root():
@@ -174,10 +183,11 @@ if __name__ == '__main__':
 
     port = find_open_port(5013, 5500)
 
-    print("# # # # # # # # # # # # # # # # #")
-    print(f"# Starting server on port {port}  #")
-    print("# # # # # # # # # # # # # # # # #")
+    #print("# # # # # # # # # # # # # # # # #")
+    #print(f"# Starting server on port {port}  #")
+    #print("# # # # # # # # # # # # # # # # #")
 
-    app.run(host="0.0.0.0", port=port, debug=app_debug)
+    #app.run(host="0.0.0.0", port=port, debug=app_debug)
+    app.run(host="0.0.0.0", port=5013, debug=app_debug)
 
     #app.run(port=port, debug=app_debug)

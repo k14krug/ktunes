@@ -7,7 +7,7 @@ from services.spotify_service import (
     spotify_auth, spotify_callback, get_spotify_client, 
     export_playlist_to_spotify, fetch_and_update_recent_tracks
 )
-from models import Track
+from models import Track, SpotifyURI
 from datetime import datetime
 
 #@spotify_bp.route('/auth')
@@ -110,16 +110,31 @@ def songs_to_add():
     # Sort tracks by added_at and select the 50 most recently added
     tracks = sorted(tracks, key=lambda x: x['added_at'], reverse=True)[:50]
 
-    # Check if tracks are already in the Tracks table
+    # Check if tracks are already in the Tracks table by joining with SpotifyURI
     track_ids = [track['track']['id'] for track in tracks]
-    existing_tracks = Track.query.filter(Track.spotify_uri.in_([f'spotify:track:{track_id}' for track_id in track_ids])).all()
-    existing_track_ids = {track.spotify_uri.split(':')[2] for track in existing_tracks}
+    spotify_uris = [f'spotify:track:{track_id}' for track_id in track_ids]
+    
+    # Query tracks through the SpotifyURI relationship
+    existing_uri_records = SpotifyURI.query.filter(SpotifyURI.uri.in_(spotify_uris)).all()
+    
+    # Extract just the track ID part from the URI (after spotify:track:)
+    existing_track_ids = {uri.uri.split(':')[2] for uri in existing_uri_records}
+
 
     # Prepare data for rendering
     track_data = []
     for item in tracks:
         track = item['track']
-        existing_track = next((t for t in existing_tracks if t.spotify_uri.split(':')[2] == track['id']), None)
+        track_id = track['id']
+        
+        # Check if this track exists through SpotifyURI
+        exists = track_id in existing_track_ids
+        
+        # Find the Track record if it exists
+        existing_uri = next((uri for uri in existing_uri_records 
+                           if uri.uri == f'spotify:track:{track_id}'), None)
+        existing_track = existing_uri.track if existing_uri else None
+
         track_data.append({
             'id': track['id'],
             'name': track['name'],
@@ -158,13 +173,24 @@ def add_songs_to_tracks():
             song=track['name'],
             artist=', '.join(artist['name'] for artist in track['artists']),
             artist_common_name=', '.join(artist['name'] for artist in track['artists']),
-            spotify_uri=track['uri'],
+            #spotify_uri=track['uri'],
             album=track['album']['name'],  # Set album
             category=category,
             play_cnt=0,
             date_added=current_date
         )
         db.session.add(new_track)
+        db.session.flush()  # To get the new track ID
+        
+        # Create the SpotifyURI record with the full URI format
+        spotify_uri = f"spotify:track:{track['id']}"
+        new_uri = SpotifyURI(
+            track_id=new_track.id,
+            uri=spotify_uri,
+            status='matched'
+        )
+        db.session.add(new_uri)
+                
     db.session.commit()
 
     flash('Selected songs have been added to the Tracks table.', 'success')

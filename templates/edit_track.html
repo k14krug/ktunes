@@ -1,14 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Edit Track</h1>
-<form method="POST">
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<form method="POST" id="edit-track-form">
     <div class="form-group">
-        <label for="song">Song</label>
+        <label for="song">Song *</label>
         <input type="text" class="form-control" id="song" name="song" value="{{ track.song }}" required>
     </div>
     <div class="form-group">
-        <label for="artist">Artist</label>
+        <label for="artist">Artist *</label>
         <input type="text" class="form-control" id="artist" name="artist" value="{{ track.artist }}" required>
+    </div>
+    <div class="form-group">
+        <label>Spotify URIs</label>
+        <div id="spotify-uris-container">
+            {% if track.spotify_uris %}
+                {% for uri in track.spotify_uris %}
+                    <div class="input-group mb-2">
+                        <input type="hidden" name="uri_id" value="{{ uri.id }}">
+                        <input type="text" class="form-control" name="spotify_uri" value="{{ uri.uri }}">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline-danger remove-uri" type="button" onclick="removeUriField(this)">×</button>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="input-group mb-2">
+                    <input type="hidden" name="uri_id" value="">
+                    <input type="text" class="form-control" name="spotify_uri" value="">
+                    <div class="input-group-append">
+                        <button class="btn btn-outline-danger remove-uri" type="button" onclick="removeUriField(this)">×</button>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="addUriField()">Add URI</button>
     </div>
     <div class="form-group">
         <label for="album">Album</label>
@@ -20,22 +54,81 @@
     </div>
     <div class="form-group">
         <label for="play_cnt">Play Count</label>
-        <input type="number" class="form-control" id="play_cnt" name="play_cnt" value="{{ track.play_cnt }}">
+        <input type="number" class="form-control" id="play_cnt" name="play_cnt" value="{{ track.play_cnt|default(0) }}">
     </div>
     <div class="form-group">
-        <label for="date_added">Date Added</label>
-        <input type="datetime-local" class="form-control" id="date_added" name="date_added" value="{{ track.date_added }}">
+        <label for="date_added">Date Added (YYYY-MM-DD HH:MM:SS)</label>
+        <input type="text" class="form-control" id="date_added" name="date_added" 
+               value="{% if track.date_added %}{{ track.date_added.strftime('%Y-%m-%d %H:%M:%S') }}{% endif %}">
+        <small class="form-text text-muted">Format: YYYY-MM-DD HH:MM:SS</small>
     </div>
     <div class="form-group">
-        <label for="last_play_dt">Last Played</label>
-        <input type="datetime-local" class="form-control" id="last_play_dt" name="last_play_dt" value="{{ track.last_play_dt }}">
-    </div>
-    <div class="form-group">
-        <label for="spotify_uri">Spotify URI</label>
-        <input type="text" class="form-control" id="spotify_uri" name="spotify_uri" value="{{ track.spotify_uri }}">
+        <label for="last_play_dt">Last Played (YYYY-MM-DD HH:MM:SS)</label>
+        <input type="text" class="form-control" id="last_play_dt" name="last_play_dt" 
+               value="{% if track.last_play_dt %}{{ track.last_play_dt.strftime('%Y-%m-%d %H:%M:%S') }}{% endif %}">
+        <small class="form-text text-muted">Format: YYYY-MM-DD HH:MM:SS</small>
     </div>
     <button type="submit" class="btn btn-primary">Save</button>
     <a href="{{ url_for('main.tracks') }}" class="btn btn-secondary">Cancel</a>
     <button type="submit" name="delete" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this track?');">Delete</button>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function addUriField() {
+        const container = document.getElementById('spotify-uris-container');
+        const newField = document.createElement('div');
+        newField.className = 'input-group mb-2';
+        newField.innerHTML = `
+            <input type="hidden" name="uri_id" value="">
+            <input type="text" class="form-control" name="spotify_uri" value="">
+            <div class="input-group-append">
+                <button class="btn btn-outline-danger remove-uri" type="button" onclick="removeUriField(this)">×</button>
+            </div>
+        `;
+        container.appendChild(newField);
+    }
+
+    function removeUriField(button) {
+        const inputGroup = button.closest('.input-group');
+        if (inputGroup) {
+            inputGroup.remove();
+        }
+    }
+
+    // Form validation
+    document.getElementById('edit-track-form').addEventListener('submit', function(e) {
+        let valid = true;
+        
+        // Validate Song
+        const songField = document.getElementById('song');
+        if (!songField.value.trim()) {
+            alert('Song name cannot be empty');
+            songField.focus();
+            e.preventDefault();
+            valid = false;
+            return;
+        }
+        
+        // Validate Artist
+        const artistField = document.getElementById('artist');
+        if (!artistField.value.trim()) {
+            alert('Artist name cannot be empty');
+            artistField.focus();
+            e.preventDefault();
+            valid = false;
+            return;
+        }
+        
+        // Log form data for debugging
+        if (valid) {
+            console.log('Submitting form:');
+            const formData = new FormData(this);
+            for (const entry of formData.entries()) {
+                console.log(entry[0] + ': ' + entry[1]);
+            }
+        }
+    });
+</script>
 {% endblock %}

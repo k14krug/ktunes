@@ -11,9 +11,9 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 
 # Spotify API credentials
-SPOTIPY_CLIENT_ID = 'bf5b82bad95f4d94a19f3b0b22dced56'
-SPOTIPY_CLIENT_SECRET = 'eab0a2259cde4d98a6048305345ab19c'
-SPOTIPY_REDIRECT_URI = 'http://localhost:5010/callback'
+SPOTIPY_CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
+SPOTIPY_CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
+SPOTIPY_REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI', 'http://localhost:5010/callback')
 
 # Initialize Spotify client
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(

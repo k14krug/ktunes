@@ -3,6 +3,7 @@ from flask_login import UserMixin
 from sqlalchemy import Column, Integer, String, DateTime, func, Table, ForeignKey
 from sqlalchemy.orm import synonym, relationship
 from extensions import db
+from datetime import datetime
 
 class CustomDateTime(db.TypeDecorator):
     impl = db.DateTime
@@ -26,6 +27,17 @@ track_genres = Table(
     Column('genre_id', Integer, ForeignKey('genres.id'), primary_key=True)
 )
 
+class SpotifyURI(db.Model):
+    __tablename__ = 'spotify_uris'
+    
+    id = Column(Integer, primary_key=True)
+    track_id = Column(Integer, ForeignKey('tracks.id'), nullable=False)
+    uri = Column(String, nullable=False)
+    status = Column(String, default='matched')  # 'matched' or 'mismatch'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    track = relationship('Track', back_populates='spotify_uris')
+
 class Track(db.Model):
     __tablename__ = 'tracks'
     
@@ -42,9 +54,9 @@ class Track(db.Model):
     artist_common_name = Column(String, nullable=True)
     ktunes_last_play_dt = Column(DateTime)
     ktunes_play_cnt = Column(Integer, nullable=True)
-    spotify_uri = Column(String, nullable=True)
     most_recent_playlist = Column(String, nullable=True)
     genres = relationship('Genre', secondary=track_genres, back_populates='tracks')
+    spotify_uris = relationship('SpotifyURI', back_populates='track')
     # Alias for the played_sw column
     played = synonym('played_sw')
     

@@ -100,15 +100,15 @@
             <td>{{ track.date_added }}</td>
             <td>{{ track.last_play_dt }}</td>
             <td>
-                {% if track.spotify_uri %}
-                {{ track.spotify_uri.split(':')[-1] }}
+                {% if track.spotify_uris %}
+                {{ track.spotify_uris[0].uri.split(':')[-1] }}
                 {% else %}
                 N/A
                 {% endif %}
             </td>
             <td>
-                {% if track.spotify_uri %}
-                <a href="https://open.spotify.com/track/{{ track.spotify_uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
+                {% if track.spotify_uris %}
+                <a href="https://open.spotify.com/track/{{ track.spotify_uris[0].uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
                 {% else %}
                 N/A
                 {% endif %}

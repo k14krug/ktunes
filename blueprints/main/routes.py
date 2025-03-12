@@ -5,7 +5,7 @@ from datetime import datetime
 import json
 import os
 from sqlalchemy import func, distinct, desc
-from models import Playlist, Track, PlayedTrack
+from models import Playlist, Track, PlayedTrack, SpotifyURI
 from services.itunes_integrator_wsl import iTunesIntegrator
 from services.playlist_generator_service import PlaylistGenerator
 from services.spotify_service import get_spotify_client
@@ -510,21 +510,190 @@ def upload_to_itunes(playlist_name):
 def edit_track(track_id):
     track = Track.query.get_or_404(track_id)
     if request.method == 'POST':
+        # Debug logging of form data
+        current_app.logger.debug("Form data received:")
+        for key, value in request.form.items():
+            current_app.logger.debug(f"  {key}: {value}")
+
         if 'delete' in request.form:
-            db.session.delete(track)
-            db.session.commit()
-            flash('Track deleted successfully', 'success')
+            try:
+                # First delete related Spotify URIs
+                SpotifyURI.query.filter_by(track_id=track_id).delete()
+                
+                # Then delete the track
+                db.session.delete(track)
+                db.session.commit()
+                flash('Track and related Spotify URIs deleted successfully', 'success')
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f"Error deleting track: {str(e)}", exc_info=True)
+                flash(f'Error deleting track: {str(e)}', 'error')
             return redirect(url_for('main.tracks'))
         else:
-            track.song = request.form['song']
-            track.artist = request.form['artist']
-            track.album = request.form['album']
-            track.category = request.form['category']
-            track.play_cnt = request.form['play_cnt']
-            track.date_added = datetime.strptime(request.form['date_added'], '%Y-%m-%dT%H:%M:%S')
-            track.last_play_dt = datetime.strptime(request.form['last_play_dt'], '%Y-%m-%dT%H:%M:%S')
-            track.spotify_uri = request.form['spotify_uri']
-            db.session.commit()
-            flash('Track updated successfully', 'success')
-            return redirect(url_for('main.tracks'))
+            try:
+                # Debug print the keys we need to access
+                current_app.logger.debug(f"Song: {request.form.get('song', 'MISSING')}")
+                current_app.logger.debug(f"Artist: {request.form.get('artist', 'MISSING')}")
+                
+                # Update track details with careful validation
+                if 'song' not in request.form or not request.form['song'].strip():
+                    raise ValueError("Song name cannot be empty")
+                track.song = request.form['song'].strip()
+                
+                if 'artist' not in request.form or not request.form['artist'].strip():
+                    raise ValueError("Artist name cannot be empty")
+                track.artist = request.form['artist'].strip()
+                
+                track.album = request.form.get('album', '').strip()
+                track.category = request.form.get('category', '').strip()
+                
+                # Handle play count carefully
+                play_cnt = request.form.get('play_cnt', '')
+                current_app.logger.debug(f"Play count: {play_cnt}")
+                if play_cnt.strip():
+                    try:
+                        track.play_cnt = int(play_cnt)
+                    except ValueError:
+                        current_app.logger.error(f"Invalid play count: {play_cnt}")
+                        flash(f"Invalid play count: {play_cnt}. Using zero.", "warning")
+                        track.play_cnt = 0
+                else:
+                    track.play_cnt = 0
+                
+                # Debug print the date values
+                current_app.logger.debug(f"Date added (raw): {request.form.get('date_added', 'MISSING')}")
+                current_app.logger.debug(f"Last play (raw): {request.form.get('last_play_dt', 'MISSING')}")
+                
+                # Parse dates more flexibly with detailed debugging
+                date_added_str = request.form.get('date_added', '').strip()
+                if date_added_str:
+                    current_app.logger.debug(f"Attempting to parse date_added: {date_added_str}")
+                    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']
+                    parsed = False
+                    
+                    for fmt in formats:
+                        try:
+                            current_app.logger.debug(f"  Trying format: {fmt}")
+                            track.date_added = datetime.strptime(date_added_str, fmt)
+                            current_app.logger.debug(f"  Success! Parsed as: {track.date_added}")
+                            parsed = True
+                            break
+                        except ValueError as e:
+                            current_app.logger.debug(f"  Failed with format {fmt}: {str(e)}")
+                    
+                    if not parsed:
+                        current_app.logger.error(f"Could not parse date_added: {date_added_str}")
+                        flash(f"Invalid date format for Date Added: {date_added_str}. Using current date.", "warning")
+                        track.date_added = datetime.now()
+                else:
+                    current_app.logger.debug("No date_added provided")
+                
+                last_play_dt_str = request.form.get('last_play_dt', '').strip()
+                if last_play_dt_str:
+                    current_app.logger.debug(f"Attempting to parse last_play_dt: {last_play_dt_str}")
+                    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']
+                    parsed = False
+                    
+                    for fmt in formats:
+                        try:
+                            current_app.logger.debug(f"  Trying format: {fmt}")
+                            track.last_play_dt = datetime.strptime(last_play_dt_str, fmt)
+                            current_app.logger.debug(f"  Success! Parsed as: {track.last_play_dt}")
+                            parsed = True
+                            break
+                        except ValueError as e:
+                            current_app.logger.debug(f"  Failed with format {fmt}: {str(e)}")
+                    
+                    if not parsed:
+                        current_app.logger.error(f"Could not parse last_play_dt: {last_play_dt_str}")
+                        flash(f"Invalid date format for Last Played: {last_play_dt_str}. Using current date.", "warning")
+                        track.last_play_dt = datetime.now()
+                else:
+                    current_app.logger.debug("No last_play_dt provided")
+                    track.last_play_dt = None  # Allow null last play date
+
+                # Handle Spotify URIs with debugging
+                uri_ids = request.form.getlist('uri_id')
+                uris = request.form.getlist('spotify_uri')
+                
+                current_app.logger.debug(f"URI IDs: {uri_ids}")
+                current_app.logger.debug(f"URIs: {uris}")
+                
+                # Track which URIs we've processed to avoid deleting newly added ones
+                processed_uri_ids = set()
+                
+                # Update existing URIs and create new ones
+                for i, (uri_id, uri) in enumerate(zip(uri_ids, uris)):
+                    current_app.logger.debug(f"Processing URI {i+1}: ID={uri_id}, URI={uri}")
+                    
+                    if uri_id and uri_id.strip().isdigit():  # Existing URI with valid ID
+                        uri_id = int(uri_id.strip())
+                        spotify_uri = SpotifyURI.query.get(uri_id)
+                        if spotify_uri:
+                            current_app.logger.debug(f"  Updating existing URI {uri_id}")
+                            spotify_uri.uri = uri.strip()
+                            processed_uri_ids.add(uri_id)
+                        else:
+                            current_app.logger.warning(f"  URI ID {uri_id} not found in database")
+                    elif uri and uri.strip():  # New URI with content
+                        current_app.logger.debug(f"  Creating new URI: {uri}")
+                        # Commit the track changes first to ensure valid track_id
+                        db.session.flush()
+                        
+                        # Create the new URI
+                        spotify_uri = SpotifyURI(
+                            track_id=track_id,
+                            uri=uri.strip(),
+                            status='matched',
+                            created_at=datetime.utcnow()
+                        )
+                        db.session.add(spotify_uri)
+                        db.session.flush()  # Flush to get the new URI ID
+                        
+                        current_app.logger.debug(f"  Created new URI with ID: {spotify_uri.id}")
+                        processed_uri_ids.add(spotify_uri.id)
+                
+                # Get current URIs from the database again (to include any we just added)
+                current_uris = SpotifyURI.query.filter_by(track_id=track_id).all()
+                current_uri_ids = {uri.id for uri in current_uris}
+                
+                current_app.logger.debug(f"Current URI IDs in DB: {current_uri_ids}")
+                current_app.logger.debug(f"Processed URI IDs: {processed_uri_ids}")
+                
+                # Only delete URIs that weren't in the form and aren't newly added
+                uris_to_delete = current_uri_ids - processed_uri_ids
+                
+                if uris_to_delete:
+                    current_app.logger.debug(f"Deleting URIs with IDs: {uris_to_delete}")
+                    SpotifyURI.query.filter(SpotifyURI.id.in_(uris_to_delete)).delete()
+                
+                # Commit changes
+                current_app.logger.debug("Committing changes to database")
+                db.session.commit()
+                
+                # Verify the URIs were saved
+                saved_uris = SpotifyURI.query.filter_by(track_id=track_id).all()
+                current_app.logger.debug(f"Saved URIs after commit: {[uri.uri for uri in saved_uris]}")
+                
+                flash('Track updated successfully', 'success')
+                return redirect(url_for('main.tracks'))
+                
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f"Error updating track: {str(e)}", exc_info=True)
+                flash(f'Error updating track: {str(e)}', 'error')
+                return render_template('edit_track.html', track=track)
+
+    # For GET requests, add debugging for what we're sending to template
+    current_app.logger.debug(f"Rendering edit form for track {track_id}")
+    current_app.logger.debug(f"  Song: {track.song}")
+    current_app.logger.debug(f"  Artist: {track.artist}")
+    current_app.logger.debug(f"  Date Added: {track.date_added}")
+    current_app.logger.debug(f"  Last Played: {track.last_play_dt}")
+    current_app.logger.debug(f"  URIs: {[uri.uri for uri in track.spotify_uris]}")
+    
+    # Refresh track from database to ensure we have the latest URIs
+    db.session.refresh(track)
+    
+    # Format dates for display in the template
     return render_template('edit_track.html', track=track)

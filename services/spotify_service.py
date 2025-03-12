@@ -2,7 +2,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from flask import current_app, session, url_for, request, redirect, jsonify
 from flask_login import current_user
-from models import Track, Playlist, SpotifyToken, PlayedTrack, db
+from models import Track, Playlist, SpotifyToken, PlayedTrack, SpotifyURI, db
 import time
 from datetime import datetime
 import pytz
@@ -10,6 +10,7 @@ import json
 import os
 import base64
 from PIL import Image
+from sqlalchemy import func
 
 
 def get_spotify_client():
@@ -199,14 +200,14 @@ def fetch_and_update_recent_tracks(limit=50):
 
         # Step 1: Fetch recent tracks
         print("Calling fetch_recent_tracks...")
-        tracks, error = fetch_recent_tracks(limit=limit)
+        recent_tracks, error = fetch_recent_tracks(limit=limit)
         print("Fetch recent tracks completed.")
 
         if error:
             print(f"Error returned from fetch_recent_tracks: {error}")
             return None, error
 
-        if not tracks:
+        if not recent_tracks:
             print("No tracks fetched.")
             return [], None
 
@@ -214,47 +215,89 @@ def fetch_and_update_recent_tracks(limit=50):
         pacific_tz = pytz.timezone('America/Los_Angeles')
         current_local_time = datetime.now(pacific_tz)  # Get the current local time
 
-        print(f"Processing {limit} fetched tracks...")
-        for i, track in enumerate(tracks, start=1):
+        print(f"Processing {limit} fetched recent tracks...")
+        for i, recent_track in enumerate(recent_tracks, start=1):
             
-            played_at_raw = track.get('played_at', 'MISSING')
+            played_at_raw = recent_track.get('played_at', 'MISSING')
             played_at_pacific = datetime.strptime(played_at_raw, datetime_format)
             # It appears that spotify is returning the time in local time, so we don't need to convert it
             #played_at_pacific = played_at_utc.replace(tzinfo=pytz.utc).astimezone(pacific_tz)
             output= f"FaURT Track {i} played at  {played_at_pacific}"
 
-            # Check if the track already exists in the played_tracks table
+            # Check if the track already exists in the PlayedTrack table. If not, insert it.
             existing_track = PlayedTrack.query.filter_by(
                 source='spotify',
-                spotify_id=track['track_id'],
+                spotify_id=recent_track['track_id'],
                 played_at=played_at_pacific
             ).first()
 
             if not existing_track:
                 # Insert the new played track
-                db_track = Track.query.filter(Track.spotify_uri.like(f"%:{track['track_id']}")).first()
+                db_track = Track.query.filter_by(song=recent_track['track_name'], artist=recent_track['artist']).first()
                 category = db_track.category if db_track else "None"
 
                 new_played_track = PlayedTrack(
                     source='spotify',
-                    artist=track['artist'],
-                    song=track['track_name'],
-                    spotify_id=track['track_id'],
+                    artist=recent_track['artist'],
+                    song=recent_track['track_name'],
+                    spotify_id=recent_track['track_id'],
                     played_at=played_at_pacific,
                     category=category,
-                    playlist_name=track.get('playlist'),
+                    playlist_name=recent_track.get('playlist'),
                     created_at=current_local_time  # Set created_at to the current local time
                 )
                 db.session.add(new_played_track)
                 db.session.commit()
                 output += " Inserted track "
 
+            
+                # Try to find matching track by URI first
+                db_track = Track.query.join(SpotifyURI).filter(
+                    SpotifyURI.uri.like(f"%:{recent_track['track_id']}"),
+                    SpotifyURI.status == 'matched'
+                ).first()
+                
+                # If no URI match, try song/artist match
+                if not db_track:
+                    db_track = Track.query.filter(
+                        func.lower(Track.song) == recent_track['track_name'].lower(),
+                        func.lower(Track.artist) == recent_track['artist'].lower()
+                    ).first()
+                    
+                # Update last_play_dt if we found a match
+                if db_track:
+                    if not db_track.last_play_dt or played_at_pacific > db_track.last_play_dt:
+                        db_track.last_play_dt = played_at_pacific
+                        db_track.play_cnt = (db_track.play_cnt or 0) + 1
+                    new_played_track.category = db_track.category
+                else:
+                    # Create new Track with 'Unmatched' category
+                    new_track = Track(
+                        song=recent_track['track_name'],
+                        artist=recent_track['artist'],
+                        category='Unmatched',
+                        last_play_dt=played_at_pacific
+                    )
+                    db.session.add(new_track)
+                    db.session.flush()  # Get the new track ID
+                    new_played_track.category = 'Unmatched'
+                    
+                    # Create SpotifyURI record
+                    new_uri = SpotifyURI(
+                        track_id=new_track.id,
+                        uri=f"spotify:track:{recent_track['track_id']}",
+                        status='unmatched'
+                    )
+                    db.session.add(new_uri)
             else:
                 output += " Already exists in played_tracks"
-            print(f"{output} {track.get('track_name', 'UNKNOWN')} by {track.get('artist', 'UNKNOWN')}")
+            
+            db.session.commit()
+            output += " Inserted track "
+            print(f"{output} {recent_track.get('track_name', 'UNKNOWN')} by {recent_track.get('artist', 'UNKNOWN')}")
 
         print("All tracks processed successfully.")
-        return tracks, None
+        return recent_tracks, None
     except Exception as e:
         print(f"Unexpected error in fetch_and_update_recent_tracks: {str(e)}")
         return None, str(e)
@@ -286,7 +329,7 @@ def export_playlist_to_spotify(playlist_name, username=None):
         ).order_by(Playlist.track_position).all()
 
         # Create Spotify playlist
-        success, result = create_spotify_playlist(playlist_name, playlist_tracks, db)
+        success, result = create_spotify_playlist(playlist_name, playlist_tracks)
         return success, result
 
     except Exception as e:
@@ -375,7 +418,7 @@ def is_in_not_in_spotify(song, artist, filename='not_in_spotify.json'):
                     return True
     return False
 
-def create_spotify_playlist(playlist_name, tracks, db, public=True):
+def create_spotify_playlist(playlist_name, tracks, public=True):
     """Create or replace the 'kTunes' playlist on Spotify and add tracks."""
     print(f"Starting create_spotify_playlist: {playlist_name}")
     mismatches = []
@@ -430,9 +473,15 @@ def create_spotify_playlist(playlist_name, tracks, db, public=True):
     for track in tracks:
         db_track = db.session.query(Track).filter_by(song=track.song, artist=track.artist).first()
 
-        if db_track and db_track.spotify_uri:
-            track_uris.append(db_track.spotify_uri)
-        else:
+        if db_track:
+            # Check for any matched URIs in SpotifyURI table
+            matched_uri = SpotifyURI.query.filter_by(
+                track_id=db_track.id,
+                status='matched'
+            ).first()
+            if matched_uri:
+                track_uris.append(matched_uri.uri)
+                continue
             if track.artist not in excluded_artists and not is_in_not_in_spotify(track.song, track.artist):
                 query = f"{track.song} artist:{track.artist}"
                 print(f"Searching Spotify for: {query}")
@@ -460,7 +509,13 @@ def create_spotify_playlist(playlist_name, tracks, db, public=True):
                     track_uris.append(spotify_uri)
 
                     if db_track:
-                        db_track.spotify_uri = spotify_uri
+                        # Add new URI record
+                        new_uri = SpotifyURI(
+                            track_id=db_track.id,
+                            uri=spotify_uri,
+                            status='matched'
+                        )
+                        db.session.add(new_uri)
                         db.session.commit()
                 else:
                     if track.artist not in excluded_artists:
@@ -572,16 +627,32 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
                     'track_id': track_id
                 })
 
+                ''' kkrug 3/7/2025 This code moved to fetch_and_update_recent_tracks
                 # Check and update the tracks table
-                db_track = Track.query.filter_by(spotify_uri=f"spotify:track:{track_id}").first()
-                if db_track:
+                # Check all matched URIs for this track
+                matched_tracks = Track.query.join(SpotifyURI).filter(
+                    SpotifyURI.uri.like(f"%:{track_id}"),
+                    SpotifyURI.status == 'matched'
+                ).all()
+                
+                for db_track in matched_tracks:
                     played_at_dt = datetime.strptime(played_at_local, "%Y-%m-%d %H:%M:%S")
                     if not db_track.last_play_dt or played_at_dt > db_track.last_play_dt:
                         db_track.last_play_dt = played_at_dt
                         db_track.play_cnt = (db_track.play_cnt or 0) + 1
-                        db.session.commit()
-                        print(f"Based on sptofiy recently played tracks, updated track: {track_name} by {artist_name} | New last_play_dt: {db_track.last_play_dt}, New play_cnt: {db_track.play_cnt}")
-
+                db.session.commit()
+                
+                #print(f"Based on sptofiy recently played tracks, updated track: {track_name} by {artist_name} | New last_play_dt: {db_track.last_play_dt}, New play_cnt: {db_track.play_cnt}")
+                if matched_tracks:
+                    # Use the last track from matched_tracks for logging
+                    last_track = matched_tracks[-1]
+                    print(
+                        f"Based on spotify recently played tracks, updated track: {track_name} by {artist_name} | "
+                        f"New last_play_dt: {last_track.last_play_dt}, New play_cnt: {last_track.play_cnt}"
+                    )
+                else:
+                    print(f"No matching track found in database for: {track_name} by {artist_name}")
+                '''
             if len(recent_tracks) >= limit or not results['next']:
                 break
             results = sp.next(results)
@@ -591,5 +662,3 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
         if e.http_status == 404:
             return None, "Resource not found."
         return None, f"Error fetching recent tracks: {str(e)}"
-
-
