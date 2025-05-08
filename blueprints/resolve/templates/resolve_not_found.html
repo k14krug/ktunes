@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>{{ title }}</h1>
+    <hr>
+    {% if not_found_tracks %}
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Local Track</th>
+                    <th>Logged Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in not_found_tracks %}
+                <tr>
+                    <td>
+                        {% if item.local_track_details %}
+                            <strong>Song:</strong> {{ item.local_track_details.song }}<br>
+                            <strong>Artist:</strong> {{ item.local_track_details.artist }}<br>
+                            <small>(ID: {{ item.local_track_details.id }})</small>
+                        {% elif item.song and item.artist %}
+                            <strong>Song:</strong> {{ item.song }}<br>
+                            <strong>Artist:</strong> {{ item.artist }}<br>
+                            <small>(Local Track ID: {{ item['track_id'] if item['track_id'] else 'N/A' }})</small>
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ item.timestamp if item.timestamp else (item.date_logged if item.date_logged else 'N/A') }}
+                    </td>
+                    <td>
+                        <div class="btn-group-vertical btn-group-sm" role="group" aria-label="Not Found Actions">
+                            <!-- Action: Search Spotify Manually / Enter URI (Modal) -->
+                            <button type="button" class="btn btn-primary w-100 mb-1" data-toggle="modal" data-target="#manualLinkNotFoundModal-{{ loop.index }}">
+                                Enter Spotify URI
+                            </button>
+
+                            <!-- Action: Confirm 'Not on Spotify' -->
+                            <form method="POST" action="{{ url_for('resolve.confirm_track_not_on_spotify') }}" style="display: inline-block; margin-bottom: 5px;">
+                                <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
+                                <input type="hidden" name="local_track_id" value="{{ item.local_track_details.id if item.local_track_details else item['track_id'] }}">
+                                <button type="submit" class="btn btn-warning w-100">Confirm Not on Spotify</button>
+                            </form>
+
+                            <!-- Action: Edit Local Track Details -->
+                            {% if item.local_track_details %}
+                            <a href="{{ url_for('main.edit_track_view', track_id=item.local_track_details.id) }}" class="btn btn-secondary w-100 mb-1">Edit Local</a>
+                            {% endif %}
+                            
+                            <!-- Action: Ignore/Dismiss -->
+                            <form method="POST" action="{{ url_for('resolve.ignore_not_found') }}" style="display: inline-block;">
+                                <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
+                                <button type="submit" class="btn btn-danger w-100">Ignore</button>
+                            </form>
+                        </div>
+
+                        <!-- Modal for Manual Link (Not Found) -->
+                        <div class="modal fade" id="manualLinkNotFoundModal-{{ loop.index }}" tabindex="-1" aria-labelledby="manualLinkNotFoundModalLabel-{{ loop.index }}" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <form method="POST" action="{{ url_for('resolve.manual_link_not_found') }}">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="manualLinkNotFoundModalLabel-{{ loop.index }}">Manually Link Spotify Track</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>For Local Track: <strong>{{ item.local_track_details.song if item.local_track_details else (item.song + ' - ' + item.artist) }}</strong></p>
+                                            <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
+                                            <input type="hidden" name="local_track_id" value="{{ item.local_track_details.id if item.local_track_details else item['track_id'] }}">
+                                            <div class="mb-3">
+                                                <label for="manual_spotify_uri_not_found-{{ loop.index }}" class="form-label">Spotify URI or URL:</label>
+                                                <input type="text" class="form-control" id="manual_spotify_uri_not_found-{{ loop.index }}" name="manual_spotify_uri" required>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            <button type="submit" class="btn btn-primary">Link Manually</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="alert alert-info" role="alert">
+            No 'not found' tracks to resolve.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

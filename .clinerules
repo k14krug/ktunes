@@ -1,0 +1,66 @@
+# Cline's Project Intelligence for kTunes
+
+This file captures important patterns, preferences, and project-specific intelligence for the kTunes application. It helps Cline (the AI software engineer) work more effectively by remembering key insights that aren't always obvious from the code alone.
+
+## How to Use This File
+
+As Cline works on the kTunes project, new rules, patterns, or observations will be added here. This document serves as a learning journal and a quick reference guide.
+
+## General Principles
+
+-   **Blueprints for Features:** New significant feature areas should be encapsulated in their own Flask Blueprints (e.g., `blueprints/resolve` for mismatch resolution).
+-   **Service Layer:** Database interactions and core business logic should generally reside in the `services/` directory rather than directly in route handlers.
+
+## Coding Conventions
+
+-   **Python:**
+    -   Follow PEP 8 guidelines.
+    -   Use f-strings for string formatting.
+    -   Import `re` and `string` when text normalization or complex string manipulation is needed.
+-   **Flask:**
+    -   (Add more as observed/defined)
+-   **JavaScript:**
+    -   (Add more as observed/defined)
+-   **HTML/CSS:**
+    -   (Add more as observed/defined)
+
+## Tool Usage Patterns
+
+-   **Database Migrations:** (How are schema changes handled? e.g., Flask-Migrate) - *Currently no formal migration tool like Flask-Migrate seems to be in use. Schema changes are likely manual or part of application updates.*
+-   **Testing Framework:** (e.g., pytest, unittest) - *No dedicated test files or framework usage observed yet.*
+-   **Linters/Formatters:** (e.g., Black, Flake8, Prettier) - *Code style seems generally consistent, but no specific formatter is explicitly mentioned or enforced via config.*
+-   **Memory Bank:** Core to workflow. `projectbrief.md`, `activeContext.md`, `progress.md` MUST be read at the start of tasks. Specific plans (e.g., `spotify_matching_enhancement_plan.md`) guide multi-phase work.
+-   **Resolution UIs:** Dedicated UIs in `blueprints/resolve/` are the preferred way to handle data inconsistencies (mismatches, not-found, unmatched tracks). These UIs should provide clear actions for users.
+-   **Fuzzy Matching for UI Suggestions:** Libraries like `thefuzz` are used to provide similarity scores and suggest potential matches in resolution UIs (e.g., "Resolve Unmatched Tracks"). This aids user decision-making but isn't (yet) used for fully automated matching in core services.
+
+## User Preferences & Workflow
+
+-   **Phased Implementation:** User prefers breaking down larger features (like Spotify Matching Enhancements) into distinct, manageable phases (A, B, C, etc.).
+-   **Memory Bank Updates:** User expects Memory Bank files (`activeContext.md`, `progress.md`) to be updated after significant changes or phase completions.
+-   **(To be defined)** Example: "When adding new dependencies, update `requirements.txt` and mention it in `activeContext.md`."
+
+## Known Challenges & Solutions
+
+-   **Spotify API Rate Limits:** (Potential issue, not explicitly hit yet) - *If encountered, consider caching API responses or adjusting request frequency.*
+-   **Song/Artist Name Variations:** Differences between local library names and Spotify names (e.g., "feat.", punctuation, articles) can lead to matching failures.
+    -   **Solution (Phase C - In Progress):** Implemented `normalize_text()` in `services/spotify_service.py` to clean and standardize names before comparison. This includes lowercasing, removing articles, standardizing "feat.", removing punctuation, and normalizing whitespace.
+
+## Project Evolution & Decisions
+
+-   **Spotify Matching Strategy (Iterative):**
+    -   **Phase A (Completed):** Focused on preserving database integrity (`SpotifyURI.status`) during playlist export mismatches and improving logging to `mismatch.json`.
+    -   **Phase B (Completed):** Introduced a UI (`blueprints/resolve/`) for manual resolution of mismatches and not-found tracks.
+    -   **New Feature (Post-Phase B, related to C): "Resolve Unmatched Tracks" UI (Implemented 2025-08-05):**
+        -   Added a new UI page (`/resolve/unmatched_tracks`) for tracks with `category='Unmatched'`.
+        -   This UI uses `normalize_text` and `thefuzz` to show potential library matches with similarity scores.
+        -   Allows users to link unmatched tracks to existing ones, confirm them as new (optionally changing category), or mark them as 'IgnoredUnmatched'.
+        -   This addresses tracks created by `fetch_and_update_recent_tracks` when a Spotify play couldn't be auto-matched.
+    -   **Phase C (In Progress - Initial Implementation Done for core services):** Focus on improving *automatic* matching accuracy in `services/spotify_service.py`.
+        -   **Decision (2025-08-05):** Implemented `normalize_text` in `services/spotify_service.py`. Applied to `create_spotify_playlist` and `fetch_and_update_recent_tracks`.
+        -   **Rationale:** To reduce automatic mismatches.
+        -   **Next Step:** Evaluate effectiveness of `normalize_text` in core services. If significant mismatches persist there, consider integrating fuzzy matching (e.g., `thefuzz`) directly into those services.
+-   **(To be defined)** Example: "Initially considered using NoSQL, but switched to SQLite for simplicity (Date: YYYY-MM-DD)."
+
+---
+
+*This file will be updated iteratively as Cline learns more about the kTunes project.*

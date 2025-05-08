@@ -386,11 +386,11 @@ def view_playlist(playlist_name):
     artist_filter = request.args.get('artist', '')
     category_filter = request.args.get('category', '')
 
-    # Query to join Playlist and Track tables on artist and song
+    # Modified query to join with SpotifyURI table
     query = db.session.query(
         Playlist,
         Track.last_play_dt,
-        Track.spotify_uri
+        Track.id.label('track_id')  # Get track_id to fetch URIs later
     ).join(
         Track, 
         (Playlist.artist == Track.artist) & (Playlist.song == Track.song)
@@ -419,6 +419,21 @@ def view_playlist(playlist_name):
         'playlist_date': playlist_tracks[0].Playlist.playlist_date,
         'track_count': len(playlist_tracks)
     }
+    
+    # Fetch Spotify URIs for all tracks in the playlist
+    track_ids = [track.track_id for track in playlist_tracks]
+    spotify_uris_map = {}
+    
+    # Query SpotifyURI table for all tracks in this playlist
+    spotify_uris = db.session.query(SpotifyURI).filter(
+        SpotifyURI.track_id.in_(track_ids)
+    ).all()
+    
+    # Group URIs by track_id for easy access in template
+    for uri in spotify_uris:
+        if uri.track_id not in spotify_uris_map:
+            spotify_uris_map[uri.track_id] = []
+        spotify_uris_map[uri.track_id].append(uri)
     
     # Calculate category percentages
     category_counts = {}
@@ -450,7 +465,8 @@ def view_playlist(playlist_name):
                         playlist=playlist_info, 
                         tracks=playlist_tracks, 
                         category_percentages=category_percentages,
-                        category_repeats=category_repeats)  # Pass category repeats to the template
+                        category_repeats=category_repeats,
+                        spotify_uris_map=spotify_uris_map)  # Pass Spotify URIs map to the template
 
 @main_bp.route('/playlists')
 @login_required
@@ -465,7 +481,6 @@ def playlists():
     .group_by(Playlist.playlist_name)\
     .order_by(func.max(Playlist.playlist_date).desc())\
     .all()
-    print(f"Displaying playlists template")
     return render_template('playlists.html', playlists=unique_playlists)
 
 @main_bp.route('/delete_playlist/<playlist_name>', methods=['POST'])

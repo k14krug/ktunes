@@ -14,6 +14,7 @@ from blueprints.scheduler import scheduler_bp
 from blueprints.auth import auth_bp
 from blueprints.spotify import spotify_bp
 from blueprints.main import main_bp
+from blueprints.resolve import resolve_bp # Added for resolution UI
 #from blueprints.genres import genres_bp
 import app_context_holder # Module to hold the global app context for APScheduler tasks
 
@@ -134,7 +135,8 @@ def create_app(app_debug=False):
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(spotify_bp, url_prefix='/spotify')
     app.register_blueprint(genres_bp, url_prefix='/genres')
-    print("Template search paths after all 5 blueprints registered:", app.jinja_loader.searchpath)
+    app.register_blueprint(resolve_bp, url_prefix='/resolve') # Added for resolution UI
+    print("Template search paths after all 6 blueprints registered:", app.jinja_loader.searchpath)
 
     # Register the datetime filter
     app.jinja_env.filters['format_datetime'] = format_datetime
@@ -157,12 +159,12 @@ def register_jobs():
         func='tasks.scheduled_tasks:export_playlist_wrapper'
     )
 
-    # run the export_default_playlist_to_spotify_task every 6 hours
+    # run the export_default_playlist_to_spotify_task every 3 hours
     scheduler.add_job(
         id='export_default_playlist_to_spotify_hourly',
         func='tasks.scheduled_tasks:export_playlist_wrapper',  # top-level function
         trigger='interval',
-        hours=6,
+        hours=3,
         replace_existing=True
     )
 
@@ -188,6 +190,6 @@ if __name__ == '__main__':
     #print("# # # # # # # # # # # # # # # # #")
 
     #app.run(host="0.0.0.0", port=port, debug=app_debug)
-    app.run(host="0.0.0.0", port=5013, debug=app_debug)
+    app.run(host="0.0.0.0", port=5003, debug=app_debug)
 
     #app.run(port=port, debug=app_debug)

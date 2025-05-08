@@ -11,6 +11,29 @@ import os
 import base64
 from PIL import Image
 from sqlalchemy import func
+import re
+import string
+def normalize_text(text_input):
+    """
+    Normalize text by converting to lowercase, removing punctuation, articles,
+    normalizing 'feat.', and collapsing whitespace.
+    """
+    if not text_input:
+        return ""
+    text = str(text_input) # Ensure text is a string
+    # Convert to lowercase
+    text = text.lower()
+    # Remove articles (e.g., "the", "a", "an") as whole words at the beginning
+    text = re.sub(r'^\b(the|a|an)\b\s+', '', text, flags=re.IGNORECASE)
+    # Normalize "feat.", "ft.", "featuring" to "feat"
+    text = re.sub(r'\b(featuring|ft\.|ft)\b', 'feat', text, flags=re.IGNORECASE)
+    # Remove common punctuation but keep ampersands for now
+    text = text.translate(str.maketrans('', '', string.punctuation.replace('&', '')))
+    # Normalize ampersands to 'and'
+    text = text.replace('&', 'and')
+    # Collapse multiple spaces to one and strip leading/trailing
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
 def get_spotify_client():
@@ -259,11 +282,38 @@ def fetch_and_update_recent_tracks(limit=50):
                 
                 # If no URI match, try song/artist match
                 if not db_track:
-                    db_track = Track.query.filter(
-                        func.lower(Track.song) == recent_track['track_name'].lower(),
-                        func.lower(Track.artist) == recent_track['artist'].lower()
-                    ).first()
+                    # Normalize for comparison
+                    recent_track_name_norm = normalize_text(recent_track['track_name'])
+                    recent_artist_norm = normalize_text(recent_track['artist'])
                     
+                    # Query using normalized fields if we had them, or compare normalized python-side
+                    # For now, let's fetch potential matches and normalize Track.song and Track.artist in Python
+                    # This is less efficient than a normalized DB query but avoids schema changes for now.
+                    
+                    # A more direct approach if we assume Track.song and Track.artist are reasonably clean:
+                    # We will normalize the Track.song and Track.artist from the DB for comparison
+                    
+                    # First, try a case-insensitive raw match as before, then refine if needed,
+                    # or directly go to a broader query if we expect many normalization variations.
+                    
+                    # Let's adjust to normalize the DB fields during comparison:
+                    all_tracks_by_artist = Track.query.filter(func.lower(Track.artist) == func.lower(recent_track['artist'])).all()
+                    found_match = False
+                    for track_in_db in all_tracks_by_artist:
+                        db_song_norm = normalize_text(track_in_db.song)
+                        if db_song_norm == recent_track_name_norm:
+                            db_track = track_in_db
+                            found_match = True
+                            break
+                    if not found_match: # If no match by artist, try by song title (less likely to be unique)
+                        all_tracks_by_song = Track.query.filter(func.lower(Track.song) == func.lower(recent_track['track_name'])).all()
+                        for track_in_db in all_tracks_by_song:
+                            db_artist_norm = normalize_text(track_in_db.artist)
+                            if db_artist_norm == recent_artist_norm:
+                                db_track = track_in_db
+                                # found_match = True # Not strictly needed here as we assign db_track
+                                break
+
                 # Update last_play_dt if we found a match
                 if db_track:
                     if not db_track.last_play_dt or played_at_pacific > db_track.last_play_dt:
@@ -358,12 +408,14 @@ def document_mismatches(mismatches, filename='mismatch.json'):
     :param mismatches: List of mismatches to handle.
     :param filename: Name of the JSON file to write mismatches to.
     """
-    # Print mismatches
+    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for mismatch in mismatches:
+        mismatch['timestamp'] = current_date
         print(f"Mismatch found:")
         print(f"  Searched for: {mismatch['searched_for']}")
         print(f"  Found: {mismatch['found']}")
-        print(f"  Spotify URL: {mismatch['spotify_url']}")   
+        print(f"  Spotify URL: {mismatch['spotify_url']}")
+        print(f"  Date: {mismatch['timestamp']}")
     
     # Write mismatches to JSON file
     if os.path.exists(filename):
@@ -467,6 +519,7 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
             return False, f"Error uploading playlist image: {e}"
 
     track_uris = []
+    invalid_uris = []
     failed_tracks = []
     excluded_artists = {"Radio Promo", "Liam"}  # Artists to exclude from failure rule
     print(f"Processing {len(tracks)} tracks")
@@ -480,7 +533,17 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                 status='matched'
             ).first()
             if matched_uri:
-                track_uris.append(matched_uri.uri)
+                # Validate URI format before adding
+                uri = matched_uri.uri.strip()
+                if uri.startswith("spotify:track") and len(uri) > 14:
+                    track_uris.append(uri)
+                else:
+                    print(f"Invalid URI format found in database: '{uri}' for {track.song} by {track.artist}")
+                    invalid_uris.append({
+                        'song': track.song,
+                        'artist': track.artist,
+                        'uri': uri
+                    })
                 continue
             if track.artist not in excluded_artists and not is_in_not_in_spotify(track.song, track.artist):
                 query = f"{track.song} artist:{track.artist}"
@@ -491,32 +554,51 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                     spotify_track = results['tracks']['items'][0]
                     spotify_uri = spotify_track['uri']
                     spotify_song = spotify_track['name']
-                    spotify_artist = ', '.join(artist['name'] for artist in spotify_track['artists'])
+                    spotify_artist_original = ', '.join(artist['name'] for artist in spotify_track['artists'])
                     spotify_api_url = spotify_track['href']  # API URL for the song
                     spotify_url = spotify_track['external_urls']['spotify']  # Spotify URL for the song
 
-                    # Compare the retrieved song and artist with the search query
-                    if spotify_song.lower() != track.song.lower() or spotify_artist.lower() != track.artist.lower():
-                        mismatch = {
-                            'searched_for': f"{track.song} by {track.artist}",
-                            'found': f"{spotify_song} by {spotify_artist}",
-                            'spotify_url': spotify_url,
-                            'track_id': db_track.id if db_track else None
+                    # Normalize local and Spotify track/artist names for comparison
+                    local_song_norm = normalize_text(track.song)
+                    local_artist_norm = normalize_text(track.artist)
+                    spotify_song_norm = normalize_text(spotify_song)
+                    spotify_artist_norm = normalize_text(spotify_artist_original)
+
+                    # Compare the normalized song and artist names
+                    is_mismatch = local_song_norm != spotify_song_norm or local_artist_norm != spotify_artist_norm
+
+                    if is_mismatch:
+                        # Create details for mismatch logging, timestamp will be added by document_mismatches
+                        mismatch_details = {
+                            'searched for': f"{track.song} by {track.artist}",
+                            'found': f"{spotify_song} by {spotify_artist_original}", # Log original names
+                            'spotify url': spotify_url,
+                            'track id': db_track.id if db_track else None,
+                            'normalized_local': f"{local_song_norm} by {local_artist_norm}",
+                            'normalized_spotify': f"{spotify_song_norm} by {spotify_artist_norm}"
                         }
-                        mismatches.append(mismatch)
-
-                    print(f"  Found URI on Spotify: {spotify_uri}")
+                        mismatches.append(mismatch_details)
+                        print(f"  Mismatch logged for '{track.song}'. Searched: {track.song}/{track.artist}, Found: {spotify_song}/{spotify_artist_original}.")
+                    else:
+                        # This is a correct match, so we create the SpotifyURI record with 'matched' status
+                        if db_track:
+                            new_uri = SpotifyURI(
+                                track_id=db_track.id,
+                                uri=spotify_uri,
+                                status='matched'
+                            )
+                            db.session.add(new_uri)
+                            db.session.commit()
+                            print(f"  Correct match. SpotifyURI created for '{track.song}' with status 'matched'.")
+                        else:
+                            # This case implies the local track (from playlist_tracks) wasn't found in the Track table
+                            # at the start of the loop if db_track was None there.
+                            print(f"  Correct match for '{track.song}', but no corresponding local db_track record to associate SpotifyURI with.")
+                    
+                    # This print confirms URI was found, whether match or mismatch
+                    print(f"  Found URI on Spotify: {spotify_uri} (Local track: '{track.song}')")
+                    # Add to Spotify playlist URI list regardless of local match status
                     track_uris.append(spotify_uri)
-
-                    if db_track:
-                        # Add new URI record
-                        new_uri = SpotifyURI(
-                            track_id=db_track.id,
-                            uri=spotify_uri,
-                            status='matched'
-                        )
-                        db.session.add(new_uri)
-                        db.session.commit()
                 else:
                     if track.artist not in excluded_artists:
                         print(f"  Failed to find track on Spotify: {track.song} by {track.artist}")
@@ -537,6 +619,12 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
     # Handle mismatches if any are found
     if mismatches:
         document_mismatches(mismatches)
+
+    # Log invalid URIs if any were found
+    if invalid_uris:
+        print(f"Found {len(invalid_uris)} invalid URIs:")
+        for invalid in invalid_uris:
+            print(f"  {invalid['song']} by {invalid['artist']}: {invalid['uri']}")
 
     # Add found tracks to the playlist
     if track_uris:
@@ -594,11 +682,19 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
         recent_tracks = []
         ktunes_playlist_uri = None  # Cache for the ktunes playlist URI
         local_tz = pytz.timezone('America/Los_Angeles')  # Replace with your local timezone
+        print(f"Fetching {limit} recent tracks...")
         while results:
             for item in results['items']:
                 track_name = item['track']['name']
                 artist_name = ', '.join(artist['name'] for artist in item['track']['artists'])
-                played_at_utc = datetime.strptime(item['played_at'], "%Y-%m-%dT%H:%M:%S.%fZ")
+                
+                # Handle timestamps with and without microseconds
+                played_at = item['played_at']
+                try:
+                    played_at_utc = datetime.strptime(played_at, "%Y-%m-%dT%H:%M:%S.%fZ")
+                except ValueError:
+                    played_at_utc = datetime.strptime(played_at, "%Y-%m-%dT%H:%M:%SZ")
+                
                 played_at_local = played_at_utc.replace(tzinfo=pytz.utc).astimezone(local_tz).strftime("%Y-%m-%d %H:%M:%S")
                 track_id = item['track']['id']
 
@@ -615,8 +711,6 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
                             if playlist_name == ktunes_playlist_name:
                                 ktunes_playlist_uri = playlist_uri
                         except:
-                            # kkrug 2/11/2025 track played on spotify that likely isn't currently in ktunes and hasn't been added to a playlist (yet)
-                            #print(f"Error fetching playlist for {artist_name} {track_name} {context}: {e}")
                             playlist_name = "Unknown Playlist"
 
                 recent_tracks.append({
@@ -627,38 +721,31 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
                     'track_id': track_id
                 })
 
-                ''' kkrug 3/7/2025 This code moved to fetch_and_update_recent_tracks
-                # Check and update the tracks table
-                # Check all matched URIs for this track
-                matched_tracks = Track.query.join(SpotifyURI).filter(
-                    SpotifyURI.uri.like(f"%:{track_id}"),
-                    SpotifyURI.status == 'matched'
-                ).all()
-                
-                for db_track in matched_tracks:
-                    played_at_dt = datetime.strptime(played_at_local, "%Y-%m-%d %H:%M:%S")
-                    if not db_track.last_play_dt or played_at_dt > db_track.last_play_dt:
-                        db_track.last_play_dt = played_at_dt
-                        db_track.play_cnt = (db_track.play_cnt or 0) + 1
-                db.session.commit()
-                
-                #print(f"Based on sptofiy recently played tracks, updated track: {track_name} by {artist_name} | New last_play_dt: {db_track.last_play_dt}, New play_cnt: {db_track.play_cnt}")
-                if matched_tracks:
-                    # Use the last track from matched_tracks for logging
-                    last_track = matched_tracks[-1]
-                    print(
-                        f"Based on spotify recently played tracks, updated track: {track_name} by {artist_name} | "
-                        f"New last_play_dt: {last_track.last_play_dt}, New play_cnt: {last_track.play_cnt}"
-                    )
-                else:
-                    print(f"No matching track found in database for: {track_name} by {artist_name}")
-                '''
-            if len(recent_tracks) >= limit or not results['next']:
-                break
-            results = sp.next(results)
+            # Check if there are more pages of results
+            if results.get('next'):
+                results = sp.next(results)
+            else:
+                break  # Exit the loop if there are no more pages
 
         return recent_tracks[:limit], None
     except spotipy.exceptions.SpotifyException as e:
-        if e.http_status == 404:
-            return None, "Resource not found."
-        return None, f"Error fetching recent tracks: {str(e)}"
+        error_message = f"Spotify API error: {e.http_status} - {e.msg}"
+        current_app.logger.error(f"SpotifyException in fetch_recent_tracks: {error_message}")
+        if e.http_status == 401: # Unauthorized / Token issue
+            # Potentially trigger a re-auth or token refresh if applicable,
+            # or notify user that re-authentication is needed.
+            # For now, just log and return a specific message.
+            error_message = "Spotify API unauthorized (401). Token may be invalid or expired."
+        elif e.http_status == 404:
+            error_message = "Spotify API resource not found (404)."
+        elif e.http_status == 429:
+            error_message = "Spotify API rate limit exceeded (429). Please try again later."
+        elif e.http_status >= 500 and e.http_status <= 504: # Server-side errors (500, 502, 503, 504)
+            error_message = f"Spotify API server error ({e.http_status}). Please try again later. Details: {e.msg}"
+        
+        # The original error from Spotipy (e) often contains the HTML response in e.msg for 502 etc.
+        # We'll return our custom error_message instead of the raw e or str(e) to avoid logging full HTML.
+        return None, error_message
+    except Exception as e: # Catch any other unexpected errors
+        current_app.logger.error(f"Unexpected generic exception in fetch_recent_tracks: {str(e)}")
+        return None, f"Unexpected error fetching recent tracks: {str(e)}"
