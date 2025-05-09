@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-kTunes is a web application designed to manage and integrate music libraries, likely from sources such as iTunes and Spotify. It provides users with tools to organize their music, create and manage playlists, track listening history, and explore music by genres.
+kTunes is a web application designed to manage my music libraries. It provides me with tools to organize my music, create and manage playlists, track listening history, and explore music by genres. This app is solely for my use. Customized for my needs
 
 ## 2. Core Requirements and Goals
 
@@ -13,13 +13,12 @@ Key features appear to include:
 - **Playlist Management:** Creating, editing, viewing, and potentially generating playlists.
 - **Integration with Music Services:** Connecting with iTunes and Spotify to sync libraries, playlists, and track information.
 - **Genre Management:** Assigning and browsing tracks by genre.
-- **User Authentication:** Allowing users to register and log in to access their personalized music data.
 - **Playback Tracking:** Logging played tracks and potentially providing statistics.
-- **Scheduling:** Possible automated tasks related to music library updates or other functions.
+- **Scheduling:** Generating updates to my Spotify Playlist
 
 ## 3. Target Audience
 
-Music enthusiasts who use multiple music services (like iTunes and Spotify) and desire a unified way to manage their collections.
+Just me.
 
 ## 4. Key Technologies
 
@@ -31,8 +30,6 @@ Based on the project structure, the following technologies are likely used:
 
 ## 5. Scope
 
-The initial scope seems to cover:
-- User registration and login.
 - Displaying tracks, artists, and playlists.
 - Creating and modifying playlists.
 - Syncing with Spotify.
@@ -41,15 +38,12 @@ The initial scope seems to cover:
 
 Future enhancements could include:
 - Advanced playlist generation rules.
-- Deeper integration with other music services.
+- Deeper integration with music services.
 - Social sharing features.
 - More detailed analytics and reporting.
 - Mobile application.
 
 ## 6. Success Metrics (To be defined)
 
-- User engagement (e.g., number of active users, playlists created).
-- Successful integration and synchronization with external services.
-- User satisfaction with music management capabilities.
+- TBD
 
-*(This is an initial draft based on the project's file structure. Further details and clarifications from the project owner/user are needed to refine this brief.)*
