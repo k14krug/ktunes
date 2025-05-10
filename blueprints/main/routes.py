@@ -39,7 +39,8 @@ def index():
             playlist_length=config['playlist_defaults']['playlist_length'],
             minimum_recent_add_playcount=config['playlist_defaults']['minimum_recent_add_playcount'],
             categories=default_categories,
-            username=current_user.username
+            username=current_user.username,
+            target_platform='local'  # Added for UI context
         )
 
         # Fetch the most recent playlist and last played track position
@@ -113,7 +114,7 @@ def generate_playlist():
 
     # Generate playlist logic...
     current_app.logger.info("Instantiating PlaylistGenerator, then calling generate()")
-    generator = PlaylistGenerator(playlist_name, playlist_length, minimum_recent_add_playcount, categories, current_user.username)
+    generator = PlaylistGenerator(playlist_name, playlist_length, minimum_recent_add_playcount, categories, current_user.username, target_platform='local') # Added for UI context
 
     # Initialize artist_last_played based on user choice
     if use_recent_playlist and recent_playlist_name:

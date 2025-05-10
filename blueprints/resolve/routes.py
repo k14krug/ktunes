@@ -292,6 +292,22 @@ def manual_link_not_found():
         flash('Missing data for manual linking a not-found track.', 'danger')
         return redirect(url_for('resolve.view_not_found'))
 
+@resolve_bp.route('/not_found_in_spotify_export')
+@login_required
+def view_not_found_in_spotify_export():
+    """Displays tracks that were marked as 'not_found_in_spotify' during a playlist export."""
+    tracks_not_found_on_export = db.session.query(Track)\
+        .join(SpotifyURI, Track.id == SpotifyURI.track_id)\
+        .filter(SpotifyURI.status == 'not_found_in_spotify')\
+        .order_by(Track.artist, Track.song)\
+        .all()
+    
+    return render_template(
+        'resolve_not_found_export.html', 
+        tracks=tracks_not_found_on_export, 
+        title="Tracks Not Found During Spotify Export"
+    )
+
 # POST routes for Unmatched Tracks
 
 @resolve_bp.route('/unmatched/link_existing', methods=['POST'])

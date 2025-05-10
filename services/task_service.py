@@ -31,7 +31,7 @@ def run_export_default_playlist(username=None):
         # kkrug 1/15/2025 - Removed the date from the playlist name
         # kkurg 2/7/2025 - Added the date back into the playlist name. Hoping this will tell me if the playlist is recent.
         #playlist_name = "kTunes Radio"
-        success, message = generate_default_playlist(playlist_name,username)
+        success, message = generate_default_playlist(playlist_name, username, target_platform='spotify')
         if not success:
             current_app.logger.error(f"Failed to generate playlist: {message}")
             return False, f"Failed to generate playlist: {message}"
@@ -52,4 +52,3 @@ def task_service_test():
         if error:
             current_app.logger.error(f"Error fetching recent Spotify tracks: {error}")
             return False, f"Error fetching recent Spotify tracks: {error}"
-

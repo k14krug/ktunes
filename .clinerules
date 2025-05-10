@@ -59,6 +59,20 @@ As Cline works on the kTunes project, new rules, patterns, or observations will 
         -   **Decision (2025-08-05):** Implemented `normalize_text` in `services/spotify_service.py`. Applied to `create_spotify_playlist` and `fetch_and_update_recent_tracks`.
         -   **Rationale:** To reduce automatic mismatches.
         -   **Next Step:** Evaluate effectiveness of `normalize_text` in core services. If significant mismatches persist there, consider integrating fuzzy matching (e.g., `thefuzz`) directly into those services.
+-   **Handle Tracks Not Found on Spotify Export (Updated 2025-10-05, Originally Implemented 2025-09-05):**
+    -   **Problem:** Tracks in kTunes playlists not found on Spotify during export would be re-added to subsequent kTunes playlists. Also, the initial solution always excluded these tracks, which is not ideal for local playlist generation.
+    -   **Solution (Conditional Filtering):**
+        -   When a track is not found on Spotify during export (`services/spotify_service.py`), its `SpotifyURI.status` is set to `'not_found_in_spotify'`. This marking logic remains.
+        -   The playlist generation logic (`services/playlist_generator_service.py`) now accepts a `target_platform` parameter (`'spotify'` or `'local'`).
+        -   Tracks with `SpotifyURI.status == 'not_found_in_spotify'` are filtered out *only if* `target_platform` is `'spotify'`.
+        -   Scheduled tasks (Spotify export) pass `target_platform='spotify'`.
+        -   UI-driven playlist generation defaults to `target_platform='local'`.
+        -   A UI page (`/resolve/not_found_in_spotify_export`) under `blueprints/resolve/` lists all tracks ever marked with this status for review (read-only).
+    -   **Rationale:** Improves playlist generation efficiency for Spotify exports by not attempting to include unexportable tracks. Allows local playlists to include all tracks regardless of Spotify availability. Provides visibility into tracks that consistently fail to export. Ensures distinct purposes for `/resolve/not_found` (from `not_in_spotify.json`) and `/resolve/not_found_in_spotify_export` (from DB status).
+-   **Playlist Generation Context (`target_platform`):**
+    -   **Decision (2025-10-05):** Introduced `target_platform` parameter in `PlaylistGenerator` and its calling functions (`generate_default_playlist`, `run_export_default_playlist`, UI routes).
+    -   **Values:** `'spotify'` (for scheduled export), `'local'` (for UI generation, default).
+    -   **Purpose:** To conditionally apply filters based on the intended use of the generated playlist.
 -   **(To be defined)** Example: "Initially considered using NoSQL, but switched to SQLite for simplicity (Date: YYYY-MM-DD)."
 
 ---

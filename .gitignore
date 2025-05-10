@@ -14,3 +14,4 @@ config.json
 *.log
 *.old
 .env
+*.json

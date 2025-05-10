@@ -40,6 +40,15 @@ Based on the project's file and directory names, and recent updates, the followi
             -   Ignoring (updates `Track.category` to 'IgnoredUnmatched').
         -   Navigation link added to `templates/base.html`.
         -   Dependencies `thefuzz` and `python-Levenshtein` added to `requirements.txt`.
+    -   **Handle Tracks Not Found on Spotify Export (UPDATED - Now Conditional):**
+        -   `services/spotify_service.py` (`create_spotify_playlist`): Still updates/creates `SpotifyURI` status to `'not_found_in_spotify'` if a track is not found on Spotify during export.
+        -   `services/playlist_generator_service.py` (`PlaylistGenerator.__init__`):
+            -   Now accepts a `target_platform` argument (defaulting to `'local'`).
+            -   Filters out tracks with `SpotifyURI.status == 'not_found_in_spotify'` *only if* `target_platform` is `'spotify'`.
+        -   `services/task_service.py` (`run_export_default_playlist`): Calls `generate_default_playlist` with `target_platform='spotify'`.
+        -   `blueprints/main/routes.py` (`index`, `generate_playlist`): Calls/instantiates `PlaylistGenerator` with `target_platform='local'`.
+        -   The route `GET /resolve/not_found_in_spotify_export` and its template remain to display all tracks ever marked as `'not_found_in_spotify'`.
+        -   Navigation link "Not Found During Export" in `templates/base.html` remains.
     -   **Recent Track Fetching (Phase C Normalization Applied):**
         -   Uses `normalize_text()` for improved song/artist name comparison when matching recent Spotify plays to local library tracks in `fetch_and_update_recent_tracks` (`services/spotify_service.py`).
 -   **Genre Management:**
@@ -79,6 +88,14 @@ This section outlines planned work and areas for improvement.
 *   **Status: Implemented.**
 *   **Next Steps:** User testing and feedback. Consider refactoring POST action logic into `services/resolution_service.py`.
 
+**Newly Added Feature: "Handle Tracks Not Found on Spotify Export"**
+*   **Status: Updated - Conditional Filtering Implemented.**
+*   **Next Steps:** User testing and feedback to ensure:
+    *   Playlists for Spotify (e.g., via scheduler) exclude `'not_found_in_spotify'` tracks.
+    *   Playlists for local use (e.g., via UI) include `'not_found_in_spotify'` tracks.
+    *   Marking of tracks in `services/spotify_service.py` remains correct.
+    *   The review UI at `/resolve/not_found_in_spotify_export` correctly lists all marked tracks.
+
 **General Areas for Future Refinement:**
 
 -   **Comprehensive Testing:** Unit tests, integration tests for all features, including "Resolve Unmatched Tracks" and Phase C normalization.
@@ -93,6 +110,7 @@ This section outlines planned work and areas for improvement.
 
 ## 3. Current Status
 
+-   **"Handle Tracks Not Found on Spotify Export" Feature: Updated with conditional filtering.** Awaiting user testing.
 -   **"Resolve Unmatched Tracks" UI & Process: Implemented.** Awaiting user testing.
 -   **Spotify Matching Enhancements - Phase A Complete.**
 -   **Spotify Matching Enhancements - Phase B Complete.**

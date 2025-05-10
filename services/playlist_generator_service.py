@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple, Any
 from sqlalchemy.sql import func
 from sqlalchemy import text, or_, tuple_
 from sqlalchemy.orm import joinedload
-from models import db, Track, Playlist
+from models import db, Track, Playlist, SpotifyURI # Added SpotifyURI
 from config_loader import load_config
 from datetime import datetime, timedelta
 import numpy as np
@@ -17,7 +17,7 @@ from tzlocal import get_localzone
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def generate_default_playlist(playlist_name, username=None):
+def generate_default_playlist(playlist_name, username=None, target_platform='local'):
     """
     Generate a default playlist using the PlaylistGenerator class.
     Deletes an existing playlist if one exists with the same name for the current user.
@@ -49,7 +49,8 @@ def generate_default_playlist(playlist_name, username=None):
             playlist_length=playlist_length,
             minimum_recent_add_playcount=minimum_recent_add_playcount,
             categories=categories,
-            username=username
+            username=username,
+            target_platform=target_platform
         )
         # Initialize artist_last_played
         generator._initialize_artist_last_played(None, None)
@@ -66,10 +67,23 @@ def generate_default_playlist(playlist_name, username=None):
 
 
 class PlaylistGenerator:
-    def __init__(self, playlist_name: str, playlist_length: int, minimum_recent_add_playcount: int, categories: List[Dict[str, Any]], username: str):
+    def __init__(self, playlist_name: str, playlist_length: int, minimum_recent_add_playcount: int, categories: List[Dict[str, Any]], username: str, target_platform: str = 'local'):
 
+        self.target_platform = target_platform
         # Load all tracks into memory once during initialization
-        self.all_tracks = {track.id: track for track in db.session.query(Track).all()}
+        tracks_query = db.session.query(Track).outerjoin(SpotifyURI, Track.id == SpotifyURI.track_id)
+
+        if self.target_platform == 'spotify':
+            # Only filter if the target is Spotify
+            tracks_query = tracks_query.filter(
+                or_(
+                    SpotifyURI.id == None,
+                    SpotifyURI.status != 'not_found_in_spotify'
+                )
+            )
+        
+        self.all_tracks = {track.id: track for track in tracks_query.all()}
+        
         # Create a mapping for each category to tracks, so we can quickly filter by category
         self.category_tracks = defaultdict(list)
         for track in self.all_tracks.values():
@@ -83,6 +97,7 @@ class PlaylistGenerator:
         :param minimum_recent_add_playcount: Minimum play count for recent additions
         :param categories: List of category dictionaries with 'name', 'percentage', and 'artist_repeat' keys
         :param username: Username of the playlist creator
+        :param target_platform: The intended platform for the playlist ('spotify' or 'local')
         """
         self.playlist_name = playlist_name
         self.playlist_length = playlist_length

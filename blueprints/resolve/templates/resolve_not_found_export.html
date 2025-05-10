@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title }}</h1>
+
+    {% if tracks %}
+        <p>The following tracks from your kTunes library were not found on Spotify during the last playlist export and will be excluded from future kTunes playlist generation until their status changes.</p>
+        <table class="table table-striped table-hover">
+            <thead class="thead-light">
+                <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Artist</th>
+                    <th scope="col">Song</th>
+                    <th scope="col">Album</th>
+                    <th scope="col">kTunes Category</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for track in tracks %}
+                <tr>
+                    <th scope="row">{{ loop.index }}</th>
+                    <td>{{ track.artist }}</td>
+                    <td>{{ track.song }}</td>
+                    <td>{{ track.album if track.album else 'N/A' }}</td>
+                    <td>{{ track.category if track.category else 'N/A' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="alert alert-info" role="alert">
+            No tracks are currently marked as 'not_found_in_spotify' from playlist exports.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
