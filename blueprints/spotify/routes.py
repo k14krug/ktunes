@@ -114,12 +114,14 @@ def songs_to_add():
     track_ids = [track['track']['id'] for track in tracks]
     spotify_uris = [f'spotify:track:{track_id}' for track_id in track_ids]
     
-    # Query tracks through the SpotifyURI relationship
-    existing_uri_records = SpotifyURI.query.filter(SpotifyURI.uri.in_(spotify_uris)).all()
+    # Query tracks through the SpotifyURI relationship, eager loading the Track
+    existing_uri_records = SpotifyURI.query.filter(SpotifyURI.uri.in_(spotify_uris)).options(db.joinedload(SpotifyURI.track)).all()
     
-    # Extract just the track ID part from the URI (after spotify:track:)
-    existing_track_ids = {uri.uri.split(':')[2] for uri in existing_uri_records}
-
+    # Create a set of track IDs that exist AND are NOT 'Unmatched'
+    existing_and_matched_track_ids = {
+        uri.uri.split(':')[2] for uri in existing_uri_records 
+        if uri.track and uri.track.category != 'Unmatched'
+    }
 
     # Prepare data for rendering
     track_data = []
@@ -127,12 +129,12 @@ def songs_to_add():
         track = item['track']
         track_id = track['id']
         
-        # Check if this track exists through SpotifyURI
-        exists = track_id in existing_track_ids
+        # Check if this track exists and is NOT 'Unmatched'
+        exists = track_id in existing_and_matched_track_ids
         
         # Find the Track record if it exists
         existing_uri = next((uri for uri in existing_uri_records 
-                           if uri.uri == f'spotify:track:{track_id}'), None)
+                             if uri.uri == f'spotify:track:{track_id}'), None)
         existing_track = existing_uri.track if existing_uri else None
 
         track_data.append({
@@ -142,7 +144,7 @@ def songs_to_add():
             'album': track['album']['name'],
             'added_at': item['added_at'],
             'date_added': existing_track.date_added if existing_track else None,
-            'exists': track['id'] in existing_track_ids
+            'exists': exists # Use the new 'exists' logic here
         })
 
     # Get sort parameters
