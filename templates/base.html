@@ -119,6 +119,18 @@
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('genres.manage_genres') }}">Manage Genres</a>
                         </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="spotifyToolsDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                Spotify Tools
+                            </a>
+                            <div class="dropdown-menu" aria-labelledby="spotifyToolsDropdown">
+                                <a class="dropdown-item" href="{{ url_for('resolve.view_mismatches') }}">Resolve Mismatches</a>
+                                <a class="dropdown-item" href="{{ url_for('resolve.view_not_found') }}">Resolve Not Found</a>
+                                <a class="dropdown-item" href="{{ url_for('resolve.view_unmatched_tracks') }}">Resolve Unmatched Tracks</a>
+                                <a class="dropdown-item" href="{{ url_for('resolve.view_not_found_in_spotify_export') }}">Not Found During Export</a>
+                                <!-- Add other spotify related tools here if needed -->
+                            </div>
+                        </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
                         </li>

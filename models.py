@@ -33,7 +33,7 @@ class SpotifyURI(db.Model):
     id = Column(Integer, primary_key=True)
     track_id = Column(Integer, ForeignKey('tracks.id'), nullable=False)
     uri = Column(String, nullable=False)
-    status = Column(String, default='matched')  # 'matched' or 'mismatch'
+    status = Column(String, default='matched')  # e.g., 'matched', 'unmatched', 'manual_match', 'confirmed_no_spotify'
     created_at = Column(DateTime, default=datetime.utcnow)
     
     track = relationship('Track', back_populates='spotify_uris')

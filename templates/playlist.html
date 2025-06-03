@@ -53,6 +53,7 @@
                     <th>Category</th>
                     <th>Play Count</th>
                     <th>Last Played</th>
+                    <th>Spotify ID</th>
                     <th>Spotify Link</th>
                 </tr>
             </thead>
@@ -66,8 +67,18 @@
                     <td>{{ track.Playlist.play_cnt }}</td>
                     <td>{{ track.last_play_dt }}</td>
                     <td>
-                        {% if track.spotify_uri %}
-                        <a href="https://open.spotify.com/track/{{ track.spotify_uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
+                        {% if spotify_uris_map.get(track.track_id) %}
+                        {{ spotify_uris_map.get(track.track_id)[0].uri.split(':')[-1] }}
+                        {% if spotify_uris_map.get(track.track_id)|length > 1 %}
+                        <span class="badge badge-info">+{{ spotify_uris_map.get(track.track_id)|length - 1 }}</span>
+                        {% endif %}
+                        {% else %}
+                        N/A
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if spotify_uris_map.get(track.track_id) %}
+                        <a href="https://open.spotify.com/track/{{ spotify_uris_map.get(track.track_id)[0].uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
                         {% else %}
                         N/A
                         {% endif %}
