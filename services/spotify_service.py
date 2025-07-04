@@ -570,10 +570,10 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                     if is_mismatch:
                         # Create details for mismatch logging, timestamp will be added by document_mismatches
                         mismatch_details = {
-                            'searched for': f"{track.song} by {track.artist}",
+                            'searched_for': f"{track.song} by {track.artist}",
                             'found': f"{spotify_song} by {spotify_artist_original}", # Log original names
-                            'spotify url': spotify_url,
-                            'track id': db_track.id if db_track else None,
+                            'spotify_url': spotify_url,
+                            'track_id': db_track.id if db_track else None,
                             'normalized_local': f"{local_song_norm} by {local_artist_norm}",
                             'normalized_spotify': f"{spotify_song_norm} by {spotify_artist_norm}"
                         }

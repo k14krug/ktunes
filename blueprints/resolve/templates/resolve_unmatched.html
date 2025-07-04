@@ -3,121 +3,194 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h1>{{ title }}</h1>
-    <p>Review tracks with category 'Unmatched'. These are typically created when a Spotify play cannot be automatically linked to an existing track in your kTunes library.</p>
-    <hr>
-    {% if unmatched_tracks %}
-        {% for unmatched_track in unmatched_tracks %}
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header bg-warning text-dark">
-                <h5 class="mb-0">Unmatched Track: {{ unmatched_track.song }} - {{ unmatched_track.artist }}</h5>
-            </div>
-            <div class="card-body text-dark">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Unmatched Track Details:</h6>
-                        <p>
-                            <strong>Song:</strong> {{ unmatched_track.song }}<br>
-                            <strong>Artist:</strong> {{ unmatched_track.artist }}<br>
-                            <strong>Album:</strong> {{ unmatched_track.album if unmatched_track.album else 'N/A' }}<br>
-                            <strong>Spotify URI:</strong> 
-                            {% if unmatched_track.spotify_track_uri %}
-                                <a href="https://open.spotify.com/track/{{ unmatched_track.spotify_track_uri.split(':')[-1] }}" target="_blank">{{ unmatched_track.spotify_track_uri }}</a>
-                            {% else %}
-                                N/A
-                            {% endif %}<br>
-                            <small>(Unmatched Track ID: {{ unmatched_track.id }})</small><br>
-                            <small>(SpotifyURI ID: {{ unmatched_track.spotify_uri_id if unmatched_track.spotify_uri_id else 'N/A' }})</small>
-                        </p>
+<div class="spotify-page-header">
+    <h1><i class="fas fa-search mr-3"></i>{{ title }}</h1>
+    <p>Review tracks with category 'Unmatched' and resolve them with your music library</p>
+</div>
+
+{% if unmatched_tracks %}
+    {% for unmatched_track in unmatched_tracks %}
+    <div class="card mb-4 fade-in-up">
+        <div class="card-header">
+            <h5 class="mb-0">
+                <i class="fas fa-music mr-2 text-warning"></i>
+                Unmatched Track: {{ unmatched_track.unmatched.song }} - {{ unmatched_track.unmatched.artist }}
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-info-circle mr-2"></i>Track Details:</h6>
+                    <div class="track-card">
+                        <div class="track-title">{{ unmatched_track.unmatched.song }}</div>
+                        <div class="track-artist">by {{ unmatched_track.unmatched.artist }}</div>
+                        
                         <div class="mt-3">
-                            <h6>Actions for this Unmatched Track:</h6>
-                            <!-- Action: Confirm as New Track (Modal) -->
-                            <button type="button" class="btn btn-success btn-sm mb-2" data-bs-toggle="modal" data-bs-target="#confirmNewModal-{{ unmatched_track.id }}">
-                                Confirm as New Track
+                            <p class="mb-1"><strong>Album:</strong> 
+                                <span class="text-muted">{{ unmatched_track.unmatched.album if unmatched_track.unmatched.album else 'N/A' }}</span>
+                            </p>
+                            <p class="mb-1"><strong>Last Played:</strong> 
+                                <span class="text-muted">
+                                    {% if unmatched_track.unmatched.last_play_dt %}
+                                        {{ unmatched_track.unmatched.last_play_dt.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        Never
+                                    {% endif %}
+                                </span>
+                            </p>
+                            <p class="mb-1"><strong>Spotify URI:</strong></p>
+                            {% if unmatched_track.unmatched.spotify_track_uri %}
+                                <a href="https://open.spotify.com/track/{{ unmatched_track.unmatched.spotify_track_uri.split(':')[-1] }}" 
+                                   target="_blank" class="btn btn-sm btn-outline-success mb-2">
+                                    <i class="fab fa-spotify mr-1"></i>Play on Spotify
+                                </a>
+                                <br><code class="text-muted">{{ unmatched_track.unmatched.spotify_track_uri }}</code>
+                            {% else %}
+                                <span class="text-muted">No Spotify URI available</span>
+                            {% endif %}
+                            
+                            <div class="mt-2">
+                                <small class="text-muted">Track ID: {{ unmatched_track.unmatched.track_id }}</small><br>
+                                <small class="text-muted">SpotifyURI ID: {{ unmatched_track.unmatched.spotify_uri_id if unmatched_track.unmatched.spotify_uri_id else 'N/A' }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h6><i class="fas fa-cogs mr-2"></i>Available Actions:</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <!-- Confirm as New Track -->
+                            <button type="button" class="btn btn-success btn-sm mb-2" 
+                                    data-bs-toggle="modal" data-bs-target="#confirmNewModal-{{ unmatched_track.unmatched.track_id }}">
+                                <i class="fas fa-plus mr-1"></i>Confirm as New Track
                             </button>
                             
-                            <!-- Action: Edit Local Track Details -->
-                             <a href="{{ url_for('main.edit_track', track_id=unmatched_track.id) }}" class="btn btn-secondary btn-sm mb-2">Edit Details</a>
+                            <!-- Edit Track Details -->
+                            <a href="{{ url_for('main.edit_track', track_id=unmatched_track.unmatched.track_id) }}" 
+                               class="btn btn-secondary btn-sm mb-2">
+                                <i class="fas fa-edit mr-1"></i>Edit Details
+                            </a>
 
-                            <!-- Action: Ignore/Dismiss (Placeholder) -->
-                            <form method="POST" action="{{ url_for('resolve.ignore_unmatched_track') }}" style="display: inline-block;" class="mb-2">
-                                <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.id }}">
-                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to ignore this unmatched track? This might mean it gets re-created if played again on Spotify and not handled.');">Ignore</button>
+                            <!-- Ignore/Dismiss -->
+                            <form method="POST" action="{{ url_for('resolve.ignore_unmatched_track') }}" 
+                                  style="display: inline-block;" class="mb-2">
+                                <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.unmatched.track_id }}">
+                                <button type="submit" class="btn btn-danger btn-sm" 
+                                        onclick="return confirm('Are you sure you want to ignore this unmatched track?');">
+                                    <i class="fas fa-times mr-1"></i>Ignore
+                                </button>
                             </form>
                         </div>
                     </div>
-
-                    <div class="col-md-6">
-                        <h6>Potential Library Matches:</h6>
-                        {% if unmatched_track.potential_matches %}
-                            <ul class="list-group">
-                                {% for match in unmatched_track.potential_matches %}
-                                <li class="list-group-item">
-                                    <strong>{{ match.track.song }}</strong> - {{ match.track.artist }}
-                                    <small class="d-block">Album: {{ match.track.album if match.track.album else 'N/A' }} (ID: {{ match.track.id }})</small>
-                                    <small class="d-block">Category: {{ match.track.category if match.track.category else 'N/A' }}</small>
-                                    <small class="d-block">Spotify URI: 
-                                        {% if match.matched_uri %}
-                                            <a href="https://open.spotify.com/track/{{ match.matched_uri.split(':')[-1] }}" target="_blank">{{ match.matched_uri }}</a>
-                                        {% else %}
-                                            N/A
-                                        {% endif %}
-                                    </small>
-                                    <span class="badge bg-info rounded-pill float-end mt-1">
-                                        Score: {{ match.overall_similarity }}%
-                                        (S: {{ match.song_similarity }}%, A: {{ match.artist_similarity }}%)
-                                    </span>
-                                    <form method="POST" action="{{ url_for('resolve.link_unmatched_to_existing') }}" style="display: inline-block; margin-top: 10px;">
-                                        <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.id }}">
-                                        <input type="hidden" name="existing_track_id" value="{{ match.track.id }}">
-                                        <input type="hidden" name="spotify_uri_id_of_unmatched" value="{{ unmatched_track.spotify_uri_id if unmatched_track.spotify_uri_id else '' }}">
-                                        <button type="submit" class="btn btn-primary btn-sm">Link to this Track</button>
-                                    </form>
-                                </li>
-                                {% endfor %}
-                            </ul>
-                        {% else %}
-                            <p class="text-muted">No strong potential matches found in your library.</p>
-                        {% endif %}
-                    </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Modal for Confirm New Track -->
-        <div class="modal fade" id="confirmNewModal-{{ unmatched_track.id }}" tabindex="-1" aria-labelledby="confirmNewModalLabel-{{ unmatched_track.id }}" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <form method="POST" action="{{ url_for('resolve.confirm_unmatched_as_new') }}">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="confirmNewModalLabel-{{ unmatched_track.id }}">Confirm New Track: {{ unmatched_track.song }}</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <p>You are about to confirm "<strong>{{ unmatched_track.song }} - {{ unmatched_track.artist }}</strong>" as a new track in your library.</p>
-                            <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.id }}">
-                            <input type="hidden" name="spotify_uri_id" value="{{ unmatched_track.spotify_uri_id if unmatched_track.spotify_uri_id else '' }}">
-                            
-                            <div class="mb-3">
-                                <label for="new_category-{{ unmatched_track.id }}" class="form-label">Assign Category (optional, defaults to 'Uncategorized'):</label>
-                                <input type="text" class="form-control" id="new_category-{{ unmatched_track.id }}" name="new_category" placeholder="e.g., Imported from Spotify, General">
-                                <small class="form-text text-muted">If left blank, will be set to 'Uncategorized'.</small>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-search mr-2"></i>Potential Library Matches:</h6>
+                    {% if unmatched_track.potential_matches %}
+                        <div class="potential-matches">
+                            {% for match in unmatched_track.potential_matches %}
+                            <div class="track-card mb-3">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <div class="track-title">{{ match.track.song }}</div>
+                                        <div class="track-artist">by {{ match.track.artist }}</div>
+                                        
+                                        <div class="mt-2">
+                                            <small class="text-muted d-block">Album: {{ match.track.album if match.track.album else 'N/A' }}</small>
+                                            <small class="text-muted d-block">Category: {{ match.track.category if match.track.category else 'N/A' }}</small>
+                                            <small class="text-muted d-block">ID: {{ match.track.id }}</small>
+                                            
+                                            {% set matched_uri_record = match.track.spotify_uris | selectattr('status', 'equalto', 'matched') | first %}
+                                            {% if matched_uri_record %}
+                                                <a href="https://open.spotify.com/track/{{ matched_uri_record.uri.split(':')[-1] }}" 
+                                                   target="_blank" class="btn btn-xs btn-outline-success mt-1">
+                                                    <i class="fab fa-spotify"></i>
+                                                </a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-right">
+                                        <div class="badge badge-primary mb-2">
+                                            {{ "%.0f"|format(match.overall_similarity) }}% match
+                                        </div>
+                                        <div class="small text-muted">
+                                            Song: {{ "%.0f"|format(match.song_similarity) }}%<br>
+                                            Artist: {{ "%.0f"|format(match.artist_similarity) }}%
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <form method="POST" action="{{ url_for('resolve.link_unmatched_to_existing') }}" class="mt-3">
+                                    <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.unmatched.track_id }}">
+                                    <input type="hidden" name="existing_track_id" value="{{ match.track.id }}">
+                                    <input type="hidden" name="spotify_uri_id_of_unmatched" 
+                                           value="{{ unmatched_track.unmatched.spotify_uri_id if unmatched_track.unmatched.spotify_uri_id else '' }}">
+                                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                                        <i class="fas fa-link mr-1"></i>Link to this Track
+                                    </button>
+                                </form>
                             </div>
+                            {% endfor %}
                         </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="submit" class="btn btn-success">Confirm New Track</button>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-search fa-2x text-muted mb-3"></i>
+                            <p class="text-muted">No potential matches found in your library with similarity > 60%</p>
                         </div>
-                    </form>
+                    {% endif %}
                 </div>
             </div>
         </div>
-        {% endfor %}
-    {% else %}
-        <div class="alert alert-info" role="alert">
-            No 'Unmatched' tracks found to resolve.
+    </div>
+
+    <!-- Modal for Confirm New Track -->
+    <div class="modal fade" id="confirmNewModal-{{ unmatched_track.unmatched.track_id }}" 
+         tabindex="-1" aria-labelledby="confirmNewModalLabel-{{ unmatched_track.unmatched.track_id }}" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="POST" action="{{ url_for('resolve.confirm_unmatched_as_new') }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmNewModalLabel-{{ unmatched_track.unmatched.track_id }}">
+                            <i class="fas fa-plus mr-2"></i>Confirm New Track: {{ unmatched_track.unmatched.song }}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You are about to confirm "<strong>{{ unmatched_track.unmatched.song }} - {{ unmatched_track.unmatched.artist }}</strong>" as a new track in your library.</p>
+                        <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.unmatched.track_id }}">
+                        <input type="hidden" name="spotify_uri_id" 
+                               value="{{ unmatched_track.unmatched.spotify_uri_id if unmatched_track.unmatched.spotify_uri_id else '' }}">
+                        
+                        <div class="mb-3">
+                            <label for="new_category-{{ unmatched_track.unmatched.track_id }}" class="form-label">
+                                Category (optional)
+                            </label>
+                            <input type="text" class="form-control" 
+                                   id="new_category-{{ unmatched_track.unmatched.track_id }}" 
+                                   name="new_category" 
+                                   placeholder="e.g., Imported from Spotify, General">
+                            <small class="form-text text-muted">If left blank, will be set to 'Uncategorized'</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-check mr-1"></i>Confirm New Track
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
-    {% endif %}
-</div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+            <h4>All tracks resolved!</h4>
+            <p class="text-muted">No unmatched tracks found to resolve. Great job!</p>
+        </div>
+    </div>
+{% endif %}
 {% endblock %}

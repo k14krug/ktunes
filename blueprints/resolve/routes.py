@@ -44,7 +44,7 @@ def view_not_found():
 def view_unmatched_tracks():
     unmatched_tracks_query = Track.query.filter(Track.category == 'Unmatched') \
                                      .outerjoin(SpotifyURI, Track.id == SpotifyURI.track_id) \
-                                     .add_columns(Track.id.label("track_id"), Track.song, Track.artist, Track.album, SpotifyURI.uri.label("spotify_track_uri"), SpotifyURI.id.label("spotify_uri_id")) \
+                                     .add_columns(Track.id.label("track_id"), Track.song, Track.artist, Track.album, Track.last_play_dt, SpotifyURI.uri.label("spotify_track_uri"), SpotifyURI.id.label("spotify_uri_id")) \
                                      .order_by(Track.artist, Track.song).all()
 
     unmatched_tracks_data = []
@@ -91,7 +91,7 @@ def view_unmatched_tracks():
 
             # --- Auto-resolution Check ---
             if overall_similarity == 100:
-                 # Fetch the matched Spotify URI for the potential library match to compare
+                # Fetch the matched Spotify URI for the potential library match to compare
                 matched_uri_record = SpotifyURI.query.filter_by(
                     track_id=lib_track.id,
                     status='matched'
@@ -102,12 +102,17 @@ def view_unmatched_tracks():
                 if unmatched.spotify_track_uri and library_match_uri and unmatched.spotify_track_uri == library_match_uri:
                     current_app.logger.info(f"Auto-resolving unmatched track ID {unmatched.track_id} ('{unmatched.song}') - Found 100% match with identical URI to track ID {lib_track.id} ('{lib_track.song}').")
                     try:
-                        # Delete the redundant 'Unmatched' Track record
+                        # Find ALL SpotifyURI records that reference this unmatched track
+                        all_spotify_uris_for_track = SpotifyURI.query.filter_by(track_id=unmatched.track_id).all()
+                        
+                        # Delete ALL associated SpotifyURI records
+                        for uri_record in all_spotify_uris_for_track:
+                            current_app.logger.info(f"Deleting associated SpotifyURI ID {uri_record.id}")
+                            db.session.delete(uri_record)
+                        
+                        # Now delete the redundant unmatched track
                         db.session.delete(unmatched_track_obj)
-                        # Delete the associated 'unmatched' SpotifyURI record if it exists
-                        if spotify_uri_obj and spotify_uri_obj.track_id == unmatched.track_id:
-                             current_app.logger.info(f"Deleting associated SpotifyURI ID {spotify_uri_obj.id}")
-                             db.session.delete(spotify_uri_obj)
+                        
                         db.session.commit()
                         auto_resolved = True
                         auto_resolved_count += 1
@@ -115,29 +120,17 @@ def view_unmatched_tracks():
                     except Exception as e:
                         db.session.rollback()
                         current_app.logger.error(f"Error auto-resolving unmatched track ID {unmatched.track_id}: {e}")
-                        # Proceed with manual display if auto-resolve fails
+
             # --- End Auto-resolution Check ---
 
             # If not auto-resolved, check threshold for adding to potential matches for manual review
             if not auto_resolved and overall_similarity > 60:
-                 # Fetch the matched Spotify URI for display if we didn't already fetch it for auto-resolution
-                if 'library_match_uri' not in locals(): # Avoid fetching twice if similarity wasn't 100
-                    matched_uri_record = SpotifyURI.query.filter_by(
-                        track_id=lib_track.id,
-                        status='matched'
-                    ).first()
-                    library_match_uri = matched_uri_record.uri if matched_uri_record else None
-
                 potential_matches.append({
                     'track': lib_track,
-                    'matched_uri': library_match_uri, # Add the URI here
                     'song_similarity': song_similarity,
                     'artist_similarity': artist_similarity,
-                    'overall_similarity': round(overall_similarity, 2)
+                    'overall_similarity': overall_similarity
                 })
-            # Clear library_match_uri for next iteration if it was defined
-            if 'library_match_uri' in locals():
-                del library_match_uri
 
         # If the track was auto-resolved in the inner loop, skip adding it for manual display
         if auto_resolved:
@@ -145,20 +138,15 @@ def view_unmatched_tracks():
 
         # Sort potential matches by overall similarity, descending
         potential_matches.sort(key=lambda x: x['overall_similarity'], reverse=True)
-        
+
         tracks_to_display.append({
-            'id': unmatched.track_id,
-            'song': unmatched.song,
-            'artist': unmatched.artist,
-            'album': unmatched.album,
-            'spotify_track_uri': unmatched.spotify_track_uri,
-            'spotify_uri_id': unmatched.spotify_uri_id, # ID of the SpotifyURI record associated with this unmatched track
-            'potential_matches': potential_matches[:5] # Top 5 matches
+            'unmatched': unmatched,
+            'potential_matches': potential_matches
         })
 
     current_app.logger.info(f"Processed {processed_count} unmatched tracks. Auto-resolved: {auto_resolved_count}. Displaying: {len(tracks_to_display)}")
     if auto_resolved_count > 0:
-        flash(f"Automatically resolved {auto_resolved_count} clear duplicate unmatched track(s).", "info")
+        flash(f"Auto-resolved {auto_resolved_count} duplicate tracks.", 'success')
         
     return render_template('resolve_unmatched.html', unmatched_tracks=tracks_to_display, title="Resolve Unmatched Tracks")
 
@@ -291,6 +279,26 @@ def manual_link_not_found():
     if not all([log_identifier, local_track_id, manual_spotify_uri_input]):
         flash('Missing data for manual linking a not-found track.', 'danger')
         return redirect(url_for('resolve.view_not_found'))
+
+    spotify_uri = _extract_spotify_uri(manual_spotify_uri_input)
+    if not spotify_uri:
+        flash('Invalid Spotify URI or URL format provided.', 'danger')
+        return redirect(url_for('resolve.view_not_found'))
+
+    success = resolve_link_track_to_spotify_uri(
+        local_track_id=int(local_track_id),
+        spotify_uri=spotify_uri,
+        status='manual_match', # User manually provided this link
+        log_identifier=log_identifier,
+        log_filename='not_in_spotify.json'
+    )
+
+    if success:
+        flash('Track successfully linked manually and "not found" entry resolved.', 'success')
+    else:
+        flash('Failed to manually link track or resolve "not found" entry. Check logs.', 'danger')
+    
+    return redirect(url_for('resolve.view_not_found'))
 
 @resolve_bp.route('/not_found_in_spotify_export')
 @login_required

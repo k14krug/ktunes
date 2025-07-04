@@ -1,51 +1,99 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <h1>Scheduler Jobs Dashboard</h1>
-  <table class="table table-striped mt-3">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Next Run Time</th>
-        <th>Trigger</th>
-        <th>Last Status</th>
-        <th>Last Run Time</th>
-        <th>Actions</th> <!-- New column for actions -->
-      </tr>
-    </thead>
-    <tbody>
-      {% for job in jobs %}
-        <tr>
-          <td>{{ job.id }}</td>
-          <td>
-            {% if job.next_run_time %}
-              {{ job.next_run_time }}
-            {% else %}
-              N/A
-            {% endif %}
-          </td>
-          <td>{{ job.trigger }}</td>
-          <td>
-            {% if job_status[job.id] %}
-              {{ job_status[job.id].status }}
-            {% else %}
-              No record
-            {% endif %}
-          </td>
-          <td>
-            {% if job_status[job.id] and job_status[job.id].run_time %}
-              {{ job_status[job.id].run_time }}
-            {% else %}
-              N/A
-            {% endif %}
-          </td>
-          <td>
-            <form action="{{ url_for('apscheduler.delete_job', job_id=job.id) }}" method="post" style="display:inline;">
-              <button type="submit" class="btn btn-danger btn-sm">Remove</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="spotify-page-header">
+  <h1><i class="fas fa-clock mr-3"></i>Scheduler Jobs Dashboard</h1>
+  <p>Manage and monitor your automated tasks</p>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-hover">
+        <thead>
+          <tr>
+            <th><i class="fas fa-id-badge mr-2"></i>Job ID</th>
+            <th><i class="fas fa-calendar-alt mr-2"></i>Next Run</th>
+            <th><i class="fas fa-cog mr-2"></i>Trigger</th>
+            <th><i class="fas fa-info-circle mr-2"></i>Status</th>
+            <th><i class="fas fa-history mr-2"></i>Last Run</th>
+            <th><i class="fas fa-tools mr-2"></i>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in jobs %}
+            <tr class="fade-in-up">
+              <td>
+                <code class="text-light">{{ job.id }}</code>
+              </td>
+              <td>
+                {% if job.next_run_time %}
+                  <span class="text-success">
+                    <i class="fas fa-play-circle mr-1"></i>
+                    {{ job.next_run_time }}
+                  </span>
+                {% else %}
+                  <span class="text-muted">
+                    <i class="fas fa-pause-circle mr-1"></i>
+                    Not scheduled
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge badge-primary">{{ job.trigger }}</span>
+              </td>
+              <td>
+                {% if job_status[job.id] %}
+                  {% if job_status[job.id].status == 'success' %}
+                    <span class="text-success">
+                      <i class="fas fa-check-circle mr-1"></i>
+                      {{ job_status[job.id].status }}
+                    </span>
+                  {% elif job_status[job.id].status == 'error' %}
+                    <span class="text-danger">
+                      <i class="fas fa-exclamation-circle mr-1"></i>
+                      {{ job_status[job.id].status }}
+                    </span>
+                  {% else %}
+                    <span class="text-warning">
+                      <i class="fas fa-clock mr-1"></i>
+                      {{ job_status[job.id].status }}
+                    </span>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">
+                    <i class="fas fa-question-circle mr-1"></i>
+                    No record
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                {% if job_status[job.id] and job_status[job.id].run_time %}
+                  <small class="text-muted">{{ job_status[job.id].run_time }}</small>
+                {% else %}
+                  <small class="text-muted">Never</small>
+                {% endif %}
+              </td>
+              <td>
+                <form action="{{ url_for('apscheduler.delete_job', job_id=job.id) }}" method="post" style="display:inline;">
+                  <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to remove this job?')">
+                    <i class="fas fa-trash mr-1"></i>Remove
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+    {% if not jobs %}
+    <div class="text-center py-5">
+      <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+      <h4 class="text-muted">No scheduled jobs</h4>
+      <p class="text-muted">All your automated tasks will appear here when scheduled.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

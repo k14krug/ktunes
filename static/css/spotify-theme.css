@@ -1,0 +1,309 @@
+/* Extended Spotify Theme for kTunes */
+
+/* Page-specific enhancements */
+.spotify-page-header {
+    background: linear-gradient(135deg, var(--spotify-green) 0%, var(--spotify-green-hover) 100%);
+    color: var(--spotify-black);
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.spotify-page-header h1 {
+    font-weight: 700;
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.spotify-page-header p {
+    font-size: 1.1rem;
+    opacity: 0.8;
+    margin: 0;
+}
+
+/* Track/Song Cards */
+.track-card {
+    background-color: var(--spotify-medium-grey);
+    border: 1px solid var(--spotify-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    transition: all 0.3s ease;
+}
+
+.track-card:hover {
+    background-color: var(--spotify-light-grey);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.track-title {
+    color: var(--spotify-white);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+}
+
+.track-artist {
+    color: var(--spotify-light-text);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+/* Playlist styling */
+.playlist-item {
+    background-color: var(--spotify-medium-grey);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    transition: all 0.2s ease;
+}
+
+.playlist-item:hover {
+    background-color: var(--spotify-light-grey);
+}
+
+.playlist-number {
+    color: var(--spotify-light-text);
+    font-weight: 500;
+    margin-right: 1rem;
+    min-width: 30px;
+}
+
+.playlist-info {
+    flex: 1;
+}
+
+.playlist-song {
+    color: var(--spotify-white);
+    font-weight: 500;
+    margin: 0;
+}
+
+.playlist-artist {
+    color: var(--spotify-light-text);
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+.playlist-duration {
+    color: var(--spotify-light-text);
+    font-size: 0.875rem;
+}
+
+/* Stats and metrics */
+.stat-card {
+    background-color: var(--spotify-medium-grey);
+    border: 1px solid var(--spotify-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.stat-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--spotify-green);
+    margin-bottom: 0.5rem;
+}
+
+.stat-label {
+    color: var(--spotify-light-text);
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* Search and filter styling */
+.search-container {
+    background-color: var(--spotify-medium-grey);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.search-input {
+    background-color: var(--spotify-light-grey);
+    border: 2px solid var(--spotify-border);
+    color: var(--spotify-white);
+    border-radius: 25px;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    width: 100%;
+    transition: all 0.2s ease;
+}
+
+.search-input:focus {
+    border-color: var(--spotify-green);
+    box-shadow: 0 0 0 0.2rem rgba(29, 185, 84, 0.25);
+    outline: none;
+}
+
+/* Navigation enhancements */
+.sidebar-nav {
+    background-color: var(--spotify-black);
+    min-height: 100vh;
+    padding: 1rem;
+}
+
+.sidebar-nav .nav-link {
+    color: var(--spotify-light-text);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.25rem;
+    transition: all 0.2s ease;
+}
+
+.sidebar-nav .nav-link:hover,
+.sidebar-nav .nav-link.active {
+    background-color: var(--spotify-light-grey);
+    color: var(--spotify-white);
+}
+
+/* Progress bars */
+.progress {
+    background-color: var(--spotify-border);
+    border-radius: 10px;
+    height: 8px;
+}
+
+.progress-bar {
+    background-color: var(--spotify-green);
+    border-radius: 10px;
+}
+
+/* Loading states */
+.loading-spinner {
+    border: 3px solid var(--spotify-border);
+    border-top: 3px solid var(--spotify-green);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 2rem auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Custom toggles and switches */
+.spotify-toggle {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 28px;
+}
+
+.spotify-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.spotify-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--spotify-border);
+    transition: .4s;
+    border-radius: 28px;
+}
+
+.spotify-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: var(--spotify-white);
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .spotify-slider {
+    background-color: var(--spotify-green);
+}
+
+input:checked + .spotify-slider:before {
+    transform: translateX(22px);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .spotify-page-header h1 {
+        font-size: 2rem;
+    }
+    
+    .track-card {
+        padding: 1rem;
+    }
+    
+    .stat-number {
+        font-size: 2rem;
+    }
+}
+
+/* Dark mode scrollbar for better integration */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--spotify-border) var(--spotify-dark-grey);
+}
+
+/* Custom animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translate3d(0, 40px, 0);
+    }
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.5s ease-out;
+}
+
+/* Spotify-style tooltips */
+.spotify-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.spotify-tooltip .tooltiptext {
+    visibility: hidden;
+    width: 120px;
+    background-color: var(--spotify-light-grey);
+    color: var(--spotify-white);
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px 0;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -60px;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.spotify-tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}

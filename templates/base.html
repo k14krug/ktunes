@@ -6,81 +6,315 @@
     <title>kTunes</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/spotify-theme.css') }}">
+    <!-- Google Fonts for Spotify-like typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Circular:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
+        /* Spotify-inspired Theme */
+        :root {
+            --spotify-black: #000000;
+            --spotify-dark-grey: #121212;
+            --spotify-medium-grey: #181818;
+            --spotify-light-grey: #1f1f1f;
+            --spotify-green: #1db954;
+            --spotify-green-hover: #1ed760;
+            --spotify-white: #ffffff;
+            --spotify-light-text: #b3b3b3;
+            --spotify-border: #282828;
+        }
+
         /* General Styling */
         body {
-            background: linear-gradient(135deg, #6b47b6, #d76d77, #ffaf7b); /* Lighter purple */
-            color: #ffffff; /* White text for contrast */
-            font-family: 'Roboto', sans-serif;
+            background-color: var(--spotify-dark-grey);
+            color: var(--spotify-white);
+            font-family: 'Inter', 'Circular', -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
         }
     
         /* Navbar Customization */
         .navbar-custom {
-            background: #7a42bb; /* Lighter purple for navbar */
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+            background-color: var(--spotify-black);
+            border-bottom: 1px solid var(--spotify-border);
+            padding: 0.75rem 0;
         }
+        
         .navbar-custom .navbar-brand {
-            color: #ffcc00; /* Retro gold for contrast */
-            font-family: 'Orbitron', sans-serif;
+            color: var(--spotify-white);
+            font-weight: 700;
             font-size: 1.5rem;
+            letter-spacing: -0.04em;
         }
+        
+        .navbar-custom .navbar-brand:hover {
+            color: var(--spotify-white);
+        }
+        
         .navbar-custom .nav-link {
-            color: #ffffff;
-            font-size: 0.9rem;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            color: var(--spotify-light-text);
+            font-size: 0.95rem;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
         }
+        
         .navbar-custom .nav-link:hover {
-            color: #f0e68c; /* Light gold hover effect */
+            color: var(--spotify-white);
+            background-color: var(--spotify-light-grey);
+        }
+        
+        .navbar-custom .dropdown-menu {
+            background-color: var(--spotify-medium-grey);
+            border: 1px solid var(--spotify-border);
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .navbar-custom .dropdown-item {
+            color: var(--spotify-light-text);
+            font-weight: 400;
+            padding: 0.75rem 1rem;
+            transition: all 0.2s ease;
+        }
+        
+        .navbar-custom .dropdown-item:hover {
+            color: var(--spotify-white);
+            background-color: var(--spotify-light-grey);
+        }
+    
+        /* Container and Layout */
+        .container {
+            max-width: 1200px;
+        }
+        
+        /* Card Styling */
+        .card {
+            background-color: var(--spotify-medium-grey);
+            border: 1px solid var(--spotify-border);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .card-header {
+            background-color: var(--spotify-light-grey);
+            border-bottom: 1px solid var(--spotify-border);
+            color: var(--spotify-white);
+            font-weight: 600;
+        }
+        
+        .card-body {
+            color: var(--spotify-white);
         }
     
         /* Table Styling */
-        table {
-            background: #ffffff; /* White table background for readability */
-            color: #000000; /* Black text for high contrast */
+        .table {
+            background-color: transparent;
+            color: var(--spotify-white);
         }
-        th {
-            background: #9c6ad6; /* Light purple for headers */
-            color: #ffffff; /* White text in headers */
+        
+        .table th {
+            background-color: var(--spotify-light-grey);
+            color: var(--spotify-white);
+            border-color: var(--spotify-border);
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
-        tr:nth-child(even) {
-            background: #f3ebfc; /* Very light purple for alternating rows */
+        
+        .table td {
+            color: var(--spotify-light-text);
+            border-color: var(--spotify-border);
+            vertical-align: middle;
         }
-        tr:nth-child(odd) {
-            background: #ffffff; /* White background for alternating rows */
+        
+        .table-striped tbody tr:nth-of-type(odd) {
+            background-color: rgba(255, 255, 255, 0.02);
         }
-        td {
-            color: #333333; /* Dark gray text for readability */
+        
+        .table-hover tbody tr:hover {
+            background-color: var(--spotify-light-grey);
+            color: var(--spotify-white);
         }
     
         /* Button Styling */
-        .btn-custom {
-            background-color: #ffcc00;
-            color: #4e148c;
-            border: none;
-            font-weight: bold;
-            text-transform: uppercase;
+        .btn-primary {
+            background-color: var(--spotify-green);
+            border-color: var(--spotify-green);
+            color: var(--spotify-black);
+            font-weight: 600;
+            border-radius: 50px;
+            padding: 0.75rem 2rem;
+            transition: all 0.2s ease;
         }
-        .btn-custom:hover {
-            background-color: #e6b800;
-            color: #3a1c71;
+        
+        .btn-primary:hover {
+            background-color: var(--spotify-green-hover);
+            border-color: var(--spotify-green-hover);
+            color: var(--spotify-black);
+            transform: scale(1.02);
+        }
+        
+        .btn-secondary {
+            background-color: transparent;
+            border: 1px solid var(--spotify-border);
+            color: var(--spotify-white);
+            font-weight: 500;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-secondary:hover {
+            background-color: var(--spotify-light-grey);
+            border-color: var(--spotify-light-text);
+            color: var(--spotify-white);
+        }
+        
+        .btn-success {
+            background-color: var(--spotify-green);
+            border-color: var(--spotify-green);
+            color: var(--spotify-black);
+            font-weight: 600;
+        }
+        
+        .btn-success:hover {
+            background-color: var(--spotify-green-hover);
+            border-color: var(--spotify-green-hover);
+            color: var(--spotify-black);
+        }
+        
+        .btn-sm {
+            border-radius: 20px;
+            padding: 0.375rem 1rem;
+            font-size: 0.875rem;
         }
     
-        /* Custom Flash Messages */
+        /* Form Styling */
+        .form-control {
+            background-color: var(--spotify-light-grey);
+            border: 1px solid var(--spotify-border);
+            color: var(--spotify-white);
+            border-radius: 4px;
+        }
+        
+        .form-control:focus {
+            background-color: var(--spotify-light-grey);
+            border-color: var(--spotify-green);
+            color: var(--spotify-white);
+            box-shadow: 0 0 0 0.2rem rgba(29, 185, 84, 0.25);
+        }
+        
+        .form-control::placeholder {
+            color: var(--spotify-light-text);
+        }
+        
+        .form-label {
+            color: var(--spotify-white);
+            font-weight: 500;
+        }
+
+        /* Alert Styling */
         .alert {
-            background-color: #e6ccff; /* Light purple background */
-            border: 1px solid #b48cd9; /* Border to match theme */
-            color: #4d2b79; /* Dark purple text */
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
         }
-    
+        
+        .alert-success {
+            background-color: rgba(29, 185, 84, 0.1);
+            color: var(--spotify-green);
+            border-left: 4px solid var(--spotify-green);
+        }
+        
+        .alert-danger {
+            background-color: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .alert-warning {
+            background-color: rgba(243, 156, 18, 0.1);
+            color: #f39c12;
+            border-left: 4px solid #f39c12;
+        }
+        
+        .alert-info {
+            background-color: rgba(52, 152, 219, 0.1);
+            color: #3498db;
+            border-left: 4px solid #3498db;
+        }
+
+        /* Modal Styling */
+        .modal-content {
+            background-color: var(--spotify-medium-grey);
+            border: 1px solid var(--spotify-border);
+            border-radius: 8px;
+        }
+        
+        .modal-header {
+            border-bottom: 1px solid var(--spotify-border);
+        }
+        
+        .modal-title {
+            color: var(--spotify-white);
+            font-weight: 600;
+        }
+        
+        .modal-footer {
+            border-top: 1px solid var(--spotify-border);
+        }
+
+        /* Badge Styling */
+        .badge {
+            font-weight: 500;
+            border-radius: 12px;
+        }
+        
+        .badge-primary {
+            background-color: var(--spotify-green);
+            color: var(--spotify-black);
+        }
+
+        /* Link Styling */
+        a {
+            color: var(--spotify-green);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            color: var(--spotify-green-hover);
+            text-decoration: underline;
+        }
+
         /* Footer Styling */
         footer {
             text-align: center;
-            background: #7a42bb; /* Match lighter navbar purple */
-            color: #ffffff;
-            padding: 10px 0;
-            font-size: 0.9rem;
+            background-color: var(--spotify-black);
+            color: var(--spotify-light-text);
+            padding: 2rem 0;
+            margin-top: 4rem;
+            border-top: 1px solid var(--spotify-border);
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--spotify-dark-grey);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--spotify-border);
+            border-radius: 6px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--spotify-light-text);
         }
     </style>
     
@@ -90,7 +324,8 @@
     <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('main.index') }}">
-                <img src="{{ url_for('static', filename='images/kTunes_logov2.png') }}" alt="kTunes Logo" style="height: 40px; margin-right: 10px;">
+                <img src="{{ url_for('static', filename='images/kTunes_logov2.png') }}" alt="kTunes Logo" style="height: 40px; margin-right: 10px; border-radius: 8px;">
+                <span class="d-none d-md-inline">kTunes</span>
             </a>
             <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
