@@ -18,6 +18,72 @@
             </thead>
             <tbody>
                 {% for item in mismatches %}
+                {% if item.is_duplicate_group %}
+                <!-- Special handling for tracks that already have good matches -->
+                <tr class="table-warning">
+                    <td>
+                        <strong>Song:</strong> {{ item.local_track_details.song }}<br>
+                        <strong>Artist:</strong> {{ item.local_track_details.artist }}<br>
+                        <small>(ID: {{ item.local_track_details.id }})</small>
+                    </td>
+                    <td>
+                        <div class="alert alert-success mb-2" style="padding: 8px;">
+                            <strong>✅ Already Matched:</strong><br>
+                            {{ item.good_match_info }}<br>
+                            <small>URI: {{ item.good_match_uri }}</small>
+                        </div>
+                        <div class="alert alert-warning mb-0" style="padding: 8px;">
+                            <strong>⚠️ {{ item.duplicate_count }} Unnecessary Records:</strong><br>
+                            <small>These were created during playlist generation but aren't needed since we already have a good match.</small>
+                        </div>
+                    </td>
+                    <td>Multiple dates</td>
+                    <td>
+                        <div class="btn-group-vertical btn-group-sm" role="group">
+                            <button type="button" class="btn btn-success w-100 mb-1" data-toggle="modal" data-target="#duplicateDetailsModal-{{ loop.index }}">
+                                View {{ item.duplicate_count }} Duplicates
+                            </button>
+                            <form method="POST" action="{{ url_for('resolve.cleanup_duplicates') }}" style="display: inline-block;">
+                                <input type="hidden" name="track_id" value="{{ item.local_track_details.id }}">
+                                <button type="submit" class="btn btn-warning w-100" onclick="return confirm('Remove all {{ item.duplicate_count }} unnecessary mismatch records for this track?')">
+                                    Clean Up Duplicates
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Modal for viewing duplicate details -->
+                        <div class="modal fade" id="duplicateDetailsModal-{{ loop.index }}" tabindex="-1" aria-labelledby="duplicateDetailsModalLabel-{{ loop.index }}" aria-hidden="true">
+                            <div class="modal-dialog modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="duplicateDetailsModalLabel-{{ loop.index }}">Duplicate Mismatch Records</h5>
+                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p><strong>Local Track:</strong> {{ item.local_track_details.song }} by {{ item.local_track_details.artist }}</p>
+                                        <p><strong>Current Good Match:</strong> {{ item.good_match_info }}</p>
+                                        <hr>
+                                        <h6>Unnecessary Mismatch Records:</h6>
+                                        {% for mismatch in item.mismatches %}
+                                        <div class="border p-2 mb-2">
+                                            <strong>Found:</strong> {{ mismatch.found }}<br>
+                                            <small>URI: {{ mismatch.spotify_track_uri }}</small><br>
+                                            <small>Created: {{ mismatch.timestamp }}</small>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <!-- Regular mismatch handling -->
                 <tr>
                     <td>
                         {% if item.local_track_details %}
@@ -67,7 +133,7 @@
 
                             <!-- Action: Edit Local Track Details -->
                             {% if item.local_track_details %}
-                            <a href="{{ url_for('main.edit_track_view', track_id=item.local_track_details.id) }}" class="btn btn-secondary w-100 mb-1">Edit Local</a>
+                            <a href="{{ url_for('main.edit_track', track_id=item.local_track_details.id) }}" class="btn btn-secondary w-100 mb-1">Edit Local</a>
                             {% endif %}
                             
                             <!-- Action: Ignore/Dismiss -->
@@ -84,7 +150,9 @@
                                     <form method="POST" action="{{ url_for('resolve.manual_link_mismatch') }}">
                                         <div class="modal-header">
                                             <h5 class="modal-title" id="manualLinkModalLabel-{{ loop.index }}">Manually Link Spotify Track</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">&times;</span>
+                                            </button>
                                         </div>
                                         <div class="modal-body">
                                             <p>For Local Track: <strong>{{ item.local_track_details.song if item.local_track_details else item['searched for'] }}</strong></p>
@@ -96,7 +164,7 @@
                                             </div>
                                         </div>
                                         <div class="modal-footer">
-                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                                             <button type="submit" class="btn btn-primary">Link Manually</button>
                                         </div>
                                     </form>
@@ -105,6 +173,7 @@
                         </div>
                     </td>
                 </tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>

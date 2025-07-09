@@ -324,7 +324,7 @@
     <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('main.index') }}">
-                <img src="{{ url_for('static', filename='images/kTunes_logov2.png') }}" alt="kTunes Logo" style="height: 40px; margin-right: 10px; border-radius: 8px;">
+                <img src="{{ url_for('static', filename='images/kTunes_logo.png') }}" alt="kTunes Logo" style="height: 40px; margin-right: 10px; border-radius: 8px;">
                 <span class="d-none d-md-inline">kTunes</span>
             </a>
             <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -336,11 +336,21 @@
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('main.played_tracks') }}">Played Tracks</a>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('main.index') }}">Make Playlist</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('main.playlists') }}">View Playlists</a>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="playlistDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <i class="fas fa-music"></i> Playlists
+                            </a>
+                            <div class="dropdown-menu" aria-labelledby="playlistDropdown">
+                                <a class="dropdown-item" href="{{ url_for('playlists.new_playlist') }}">
+                                    <i class="fas fa-plus-circle"></i> New Playlist (Engine Selection)
+                                </a>
+                                <a class="dropdown-item" href="{{ url_for('main.index') }}">
+                                    <i class="fas fa-fast-forward"></i> Quick Generate (Classic)
+                                </a>
+                                <a class="dropdown-item" href="{{ url_for('main.playlists') }}">
+                                    <i class="fas fa-list"></i> View All Playlists
+                                </a>
+                            </div>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('main.tracks') }}">All Tracks</a>
@@ -352,7 +362,7 @@
                             <a class="nav-link" href="{{ url_for('main.manage_artists') }}">Manage Artists</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('genres.manage_genres') }}">Manage Genres</a>
+                            <a class="nav-link" href="{{ url_for('playlists.manage_genres') }}">Manage Genres</a>
                         </li>
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="spotifyToolsDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">

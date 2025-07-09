@@ -6,7 +6,62 @@
   <p>Manage and monitor your automated tasks</p>
 </div>
 
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-cogs mr-2"></i>Task Configuration</h5>
+    </div>
+    <div class="card-body">
+        <p class="card-text">Enable or disable scheduled tasks. Changes will be saved to your <code>config.json</code> file. Note that for some changes to take effect, a restart of the application may be required.</p>
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th><i class="fas fa-tasks mr-2"></i>Task Name</th>
+                        <th><i class="fas fa-toggle-on mr-2"></i>Status</th>
+                        <th><i class="fas fa-tools mr-2"></i>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for task_id, task_config in scheduled_tasks.items() %}
+                    <tr class="fade-in-up">
+                        <td>
+                            <code class="text-light">{{ task_id }}</code>
+                        </td>
+                        <td>
+                            {% if task_config.enabled %}
+                                <span class="badge badge-success"><i class="fas fa-check-circle mr-1"></i>Enabled</span>
+                            {% else %}
+                                <span class="badge badge-danger"><i class="fas fa-times-circle mr-1"></i>Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form action="{{ url_for('scheduler_bp.toggle_task', task_id=task_id) }}" method="post" style="display:inline;">
+                                {% if task_config.enabled %}
+                                    <input type="hidden" name="action" value="disable">
+                                    <button type="submit" class="btn btn-warning btn-sm">
+                                        <i class="fas fa-toggle-off mr-1"></i>Disable
+                                    </button>
+                                {% else %}
+                                    <input type="hidden" name="action" value="enable">
+                                    <button type="submit" class="btn btn-success btn-sm">
+                                        <i class="fas fa-toggle-on mr-1"></i>Enable
+                                    </button>
+                                {% endif %}
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
 <div class="card">
+  <div class="card-header">
+    <h5 class="mb-0"><i class="fas fa-list-alt mr-2"></i>Currently Scheduled Jobs</h5>
+  </div>
   <div class="card-body">
     <div class="table-responsive">
       <table class="table table-hover">
@@ -75,6 +130,11 @@
                 {% endif %}
               </td>
               <td>
+                <form action="{{ url_for('apscheduler.run_job', job_id=job.id) }}" method="post" style="display:inline;">
+                    <button type="submit" class="btn btn-info btn-sm">
+                        <i class="fas fa-play mr-1"></i>Run Now
+                    </button>
+                </form>
                 <form action="{{ url_for('apscheduler.delete_job', job_id=job.id) }}" method="post" style="display:inline;">
                   <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to remove this job?')">
                     <i class="fas fa-trash mr-1"></i>Remove

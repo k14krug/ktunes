@@ -35,6 +35,52 @@ def normalize_text(text_input):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def normalize_text_for_matching(text_input):
+    """
+    Enhanced normalization for track matching that handles remastering, 
+    editions, and other common Spotify variations.
+    """
+    if not text_input:
+        return ""
+    
+    text = str(text_input).lower()
+    
+    # Remove articles at the beginning
+    text = re.sub(r'^\b(the|a|an)\b\s+', '', text, flags=re.IGNORECASE)
+    
+    # Remove remastering and edition information
+    remaster_patterns = [
+        r'\s*-?\s*remaster(ed)?\s*\d{4}',  # "- Remastered 2010", "Remaster 2010"
+        r'\s*-?\s*\d{4}\s*remaster(ed)?',  # "- 2010 Remastered" 
+        r'\s*-?\s*remaster(ed)?',          # "- Remastered", "Remaster"
+        r'\s*-?\s*\d{4}\s*edition',        # "- 2010 Edition"
+        r'\s*-?\s*special\s*edition',      # "- Special Edition"
+        r'\s*-?\s*deluxe\s*edition',       # "- Deluxe Edition"
+        r'\s*-?\s*expanded\s*edition',     # "- Expanded Edition"
+        r'\s*-?\s*anniversary\s*edition',  # "- Anniversary Edition"
+        r'\s*-?\s*stereo',                 # "- Stereo"
+        r'\s*-?\s*mono',                   # "- Mono"
+        r'\s*\([^)]*remaster[^)]*\)',      # "(Remastered)", "(2010 Remaster)"
+        r'\s*\([^)]*\d{4}[^)]*\)',         # "(2010)", "(Live 1970)"
+    ]
+    
+    for pattern in remaster_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    
+    # Normalize featuring
+    text = re.sub(r'\b(featuring|feat\.|ft\.|ft)\b', 'feat', text, flags=re.IGNORECASE)
+    
+    # Remove punctuation except &
+    text = text.translate(str.maketrans('', '', string.punctuation.replace('&', '')))
+    
+    # Normalize ampersands to 'and'
+    text = text.replace('&', 'and')
+    
+    # Collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
 
 def get_spotify_client():
     """
@@ -274,10 +320,10 @@ def fetch_and_update_recent_tracks(limit=50):
                 output += " Inserted track "
 
             
-                # Try to find matching track by URI first
+                # Try to find matching track by URI first - include all matched statuses
                 db_track = Track.query.join(SpotifyURI).filter(
                     SpotifyURI.uri.like(f"%:{recent_track['track_id']}"),
-                    SpotifyURI.status == 'matched'
+                    SpotifyURI.status.in_(['matched', 'mismatch_accepted', 'manual_match'])
                 ).first()
                 
                 # If no URI match, try song/artist match
@@ -353,13 +399,14 @@ def fetch_and_update_recent_tracks(limit=50):
         return None, str(e)
 
     
-def export_playlist_to_spotify(playlist_name, username=None):
+def export_playlist_to_spotify(playlist_name, username=None, playlist_tracks=None):
     """
     Export a playlist to Spotify.
 
     :param playlist_name: The name of the playlist to export.
     :param db: The database session.
     :param username: (Optional) The username to fetch the playlist for. Defaults to the current user.
+    :param playlist_tracks: (Optional) A list of playlist tracks to export. If not provided, they will be fetched from the database.
     :return: A tuple (success: bool, result: dict).
     """
     try:
@@ -372,11 +419,12 @@ def export_playlist_to_spotify(playlist_name, username=None):
         username = username or current_user.username
         print(f"Starting export_playlist_to_spotify for playlist: {playlist_name} and username: {username}")
     
-        # Fetch tracks for the playlist
-        playlist_tracks = Playlist.query.filter_by(
-            username=username,
-            playlist_name=playlist_name
-        ).order_by(Playlist.track_position).all()
+        # Fetch tracks for the playlist if not provided
+        if playlist_tracks is None:
+            playlist_tracks = Playlist.query.filter_by(
+                username=username,
+                playlist_name=playlist_name
+            ).order_by(Playlist.track_position).all()
 
         # Create Spotify playlist
         success, result = create_spotify_playlist(playlist_name, playlist_tracks)
@@ -401,74 +449,7 @@ def list_playlists():
         })
     return jsonify({"playlists": result})
 
-def document_mismatches(mismatches, filename='mismatch.json'):
-    """
-    Handle mismatches by writing them to a JSON file and printing them.
 
-    :param mismatches: List of mismatches to handle.
-    :param filename: Name of the JSON file to write mismatches to.
-    """
-    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for mismatch in mismatches:
-        mismatch['timestamp'] = current_date
-        print(f"Mismatch found:")
-        print(f"  Searched for: {mismatch['searched_for']}")
-        print(f"  Found: {mismatch['found']}")
-        print(f"  Spotify URL: {mismatch['spotify_url']}")
-        print(f"  Date: {mismatch['timestamp']}")
-    
-    # Write mismatches to JSON file
-    if os.path.exists(filename):
-        with open(filename, 'r+') as file:
-            existing_data = json.load(file)
-            existing_data.extend(mismatches)
-            file.seek(0)
-            json.dump(existing_data, file, indent=4)
-    else:
-        with open(filename, 'w') as file:
-            json.dump(mismatches, file, indent=4)
-
-def add_to_not_in_spotify(song, artist, track_id, filename='not_in_spotify.json'):
-    """
-    Add a song that isn't found on Spotify to a JSON file.
-
-    :param song: Name of the song.
-    :param artist: Name of the artist.
-    :param track_id: ID of the track.
-    :param filename: Name of the JSON file to write to.
-    """
-    entry = {
-        'song': song,
-        'artist': artist,
-        'track_id': track_id
-    }
-
-    if os.path.exists(filename):
-        with open(filename, 'r+') as file:
-            existing_data = json.load(file)
-            existing_data.append(entry)
-            file.seek(0)
-            json.dump(existing_data, file, indent=4)
-    else:
-        with open(filename, 'w') as file:
-            json.dump([entry], file, indent=4)
-
-def is_in_not_in_spotify(song, artist, filename='not_in_spotify.json'):
-    """
-    Check if a song is in the not_in_spotify.json file.
-
-    :param song: Name of the song.
-    :param artist: Name of the artist.
-    :param filename: Name of the JSON file to read from.
-    :return: True if the song is in the JSON file, False otherwise.
-    """
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            existing_data = json.load(file)
-            for entry in existing_data:
-                if entry['song'].lower() == song.lower() and entry['artist'].lower() == artist.lower():
-                    return True
-    return False
 
 def create_spotify_playlist(playlist_name, tracks, public=True):
     """Create or replace the 'kTunes' playlist on Spotify and add tracks."""
@@ -503,7 +484,8 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
         sp.playlist_change_details(playlist_id, description=description)
         # Load and upload the image
         print(f"Uploading image to playlist: {playlist_name}")
-        image_path = '/home/kkrug/projects/ktunes/krugfm96.2v2.jpg'
+        #image_path = '/home/kkrug/apps/ktunes/static/images/krugfm96-2.png'
+        image_path = os.path.join(current_app.static_folder, 'images', 'krugfm96-2.png')
         try:
             # Encode the image to Base64
             encoded_image = encode_image_to_base64(image_path)
@@ -545,7 +527,14 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                         'uri': uri
                     })
                 continue
-            if track.artist not in excluded_artists and not is_in_not_in_spotify(track.song, track.artist):
+            # Check if this track is already known to not be in Spotify
+            is_known_not_in_spotify = False
+            if db_track:
+                existing_spotify_uri = SpotifyURI.query.filter_by(track_id=db_track.id).first()
+                if existing_spotify_uri and existing_spotify_uri.status in ['not_found_in_spotify', 'confirmed_no_spotify']:
+                    is_known_not_in_spotify = True
+                    
+            if track.artist not in excluded_artists and not is_known_not_in_spotify:
                 query = f"{track.song} artist:{track.artist}"
                 print(f"Searching Spotify for: {query}")
                 results = sp.search(q=query, type='track', limit=1)
@@ -568,17 +557,27 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                     is_mismatch = local_song_norm != spotify_song_norm or local_artist_norm != spotify_artist_norm
 
                     if is_mismatch:
-                        # Create details for mismatch logging, timestamp will be added by document_mismatches
-                        mismatch_details = {
-                            'searched_for': f"{track.song} by {track.artist}",
-                            'found': f"{spotify_song} by {spotify_artist_original}", # Log original names
-                            'spotify_url': spotify_url,
-                            'track_id': db_track.id if db_track else None,
-                            'normalized_local': f"{local_song_norm} by {local_artist_norm}",
-                            'normalized_spotify': f"{spotify_song_norm} by {spotify_artist_norm}"
-                        }
-                        mismatches.append(mismatch_details)
-                        print(f"  Mismatch logged for '{track.song}'. Searched: {track.song}/{track.artist}, Found: {spotify_song}/{spotify_artist_original}.")
+                        # NEW: Create SpotifyURI record with mismatch_accepted status
+                        if db_track:
+                            # Check if SpotifyURI already exists for this track
+                            existing_uri = SpotifyURI.query.filter_by(track_id=db_track.id).first()
+                            if existing_uri:
+                                # Update existing record
+                                existing_uri.uri = spotify_uri
+                                existing_uri.status = 'mismatch_accepted'
+                                print(f"  Updated existing SpotifyURI for '{track.song}' to 'mismatch_accepted'.")
+                            else:
+                                # Create new SpotifyURI record
+                                new_uri = SpotifyURI(
+                                    track_id=db_track.id,
+                                    uri=spotify_uri,
+                                    status='mismatch_accepted'
+                                )
+                                db.session.add(new_uri)
+                                print(f"  Created SpotifyURI for mismatch '{track.song}' with status 'mismatch_accepted'.")
+                            db.session.commit()
+                        
+                        print(f"  Mismatch detected for '{track.song}'. Searched: {track.song}/{track.artist}, Found: {spotify_song}/{spotify_artist_original}.")
                     else:
                         # This is a correct match, so we create the SpotifyURI record with 'matched' status
                         if db_track:
@@ -624,8 +623,7 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                         else:
                             print(f"    Cannot update/create SpotifyURI as db_track is not available for {track.song} by {track.artist}")
                         
-                        # Continue logging to not_in_spotify.json as before
-                        add_to_not_in_spotify(track.song, track.artist, db_track.id if db_track else None)
+
                     else:
                         print(f"  Skipping failure count for track: {track.song} by {track.artist}")
 
@@ -638,9 +636,7 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                 "failed_tracks": failed_tracks,
             }
         
-    # Handle mismatches if any are found
-    if mismatches:
-        document_mismatches(mismatches)
+
 
     # Log invalid URIs if any were found
     if invalid_uris:
@@ -681,15 +677,47 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
 
 def encode_image_to_base64(image_path):
     """
-    Encodes an image file to a Base64 string.
+    Encodes an image file to a Base64 string for Spotify playlist covers.
+    Converts to JPEG format and ensures it meets Spotify's requirements.
 
     :param image_path: Path to the image file
     :return: Base64-encoded string, or None if encoding fails
     """
     try:
-        with open(image_path, 'rb') as image_file:
-            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-        return encoded_image
+        # Open and convert image to JPEG format
+        with Image.open(image_path) as img:
+            # Convert to RGB if necessary (removes transparency)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Resize if too large (Spotify recommends 300x300 minimum)
+            max_size = (640, 640)  # Reasonable size that's not too large
+            if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
+                img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # Save as JPEG to BytesIO
+            import io
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='JPEG', quality=90, optimize=True)
+            img_buffer.seek(0)
+            
+            # Check file size (Spotify limit is 256KB)
+            img_size = len(img_buffer.getvalue())
+            if img_size > 256 * 1024:  # 256KB limit
+                # Reduce quality if too large
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='JPEG', quality=70, optimize=True)
+                img_buffer.seek(0)
+                img_size = len(img_buffer.getvalue())
+                
+                if img_size > 256 * 1024:
+                    print(f"Warning: Image still too large ({img_size} bytes) after compression")
+            
+            # Encode to base64
+            encoded_image = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+            print(f"Image encoded successfully: {img_size} bytes")
+            return encoded_image
+            
     except Exception as e:
         print(f"Error encoding image to Base64: {e}")
         return None

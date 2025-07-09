@@ -1,5 +1,5 @@
 from flask import Blueprint
 
-resolve_bp = Blueprint('resolve', __name__, template_folder='templates')
+resolve_bp = Blueprint('resolve', __name__)
 
 from . import routes

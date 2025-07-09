@@ -1,0 +1,236 @@
+<!-- Interactive Engine Comparison -->
+<!-- templates/playlists/compare_engines.html -->
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2>Playlist Engine Comparison</h2>
+    <p class="lead">Compare different engines to find the perfect fit for your music collection.</p>
+    
+    <!-- Filter Controls -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5>Find Your Perfect Engine</h5>
+            <div class="row">
+                <div class="col-md-3">
+                    <label>Collection Size</label>
+                    <select class="form-control" id="collection-filter">
+                        <option value="">Any Size</option>
+                        <option value="small">Small (< 1K tracks)</option>
+                        <option value="medium">Medium (1K - 10K tracks)</option>
+                        <option value="large">Large (10K+ tracks)</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>Playlist Length</label>
+                    <select class="form-control" id="length-filter">
+                        <option value="">Any Length</option>
+                        <option value="short">Short (< 1 hour)</option>
+                        <option value="medium">Medium (1-10 hours)</option>
+                        <option value="long">Long (10+ hours)</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>Focus</label>
+                    <select class="form-control" id="focus-filter">
+                        <option value="">Any Focus</option>
+                        <option value="discovery">Music Discovery</option>
+                        <option value="favorites">Play Favorites</option>
+                        <option value="variety">Maximum Variety</option>
+                        <option value="mood">Mood-Based</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-primary form-control" onclick="filterEngines()">
+                        Find Engines
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Comparison Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Engine</th>
+                            <th>Best For</th>
+                            <th>Collection Size</th>
+                            <th>Typical Length</th>
+                            <th>Key Features</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="engine-comparison">
+                        {% for engine in engines %}
+                        <tr class="engine-row" 
+                            data-collection="{{ engine.collection_category }}"
+                            data-length="{{ engine.length_category }}"
+                            data-focus="{{ engine.focus_tags | join(',') }}">
+                            <td>
+                                <strong>{{ engine.name }}</strong><br>
+                                <small class="text-muted">{{ engine.id }}</small>
+                            </td>
+                            <td>
+                                {% for use_case in engine.use_cases[:3] %}
+                                <span class="badge badge-light">{{ use_case }}</span>
+                                {% endfor %}
+                            </td>
+                            <td>{{ engine.stats.collection_size if engine.stats else 'Any' }}</td>
+                            <td>{{ engine.stats.typical_length if engine.stats else 'Variable' }}</td>
+                            <td>
+                                <ul class="list-unstyled mb-0">
+                                    {% for feature in engine.features[:3] %}
+                                    <li><small><i class="fas fa-check text-success"></i> {{ feature }}</small></li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                            <td>
+                                <div class="btn-group-vertical btn-group-sm">
+                                    <a href="{{ url_for('playlists.create_playlist', engine_id=engine.id) }}" 
+                                       class="btn btn-primary btn-sm">Use Engine</a>
+                                    <a href="#" class="btn btn-outline-secondary btn-sm"
+                                       onclick="showEngineDetails('{{ engine.id }}')">View Details</a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recommendation Box -->
+    <div class="alert alert-info mt-4" id="recommendation" style="display: none;">
+        <h5><i class="fas fa-lightbulb"></i> Our Recommendation</h5>
+        <p id="recommendation-text"></p>
+    </div>
+</div>
+
+<!-- Engine Details Modal -->
+<div class="modal fade" id="engineDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="engineDetailsTitle">Engine Details</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="engineDetailsBody">
+                Loading...
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="useEngineBtn">
+                    Use This Engine
+                </button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function filterEngines() {
+    const collection = document.getElementById('collection-filter').value;
+    const length = document.getElementById('length-filter').value;
+    const focus = document.getElementById('focus-filter').value;
+    
+    const rows = document.querySelectorAll('.engine-row');
+    let visibleCount = 0;
+    let recommendedEngine = null;
+    
+    rows.forEach(row => {
+        let show = true;
+        
+        if (collection && !row.dataset.collection.includes(collection)) {
+            show = false;
+        }
+        if (length && !row.dataset.length.includes(length)) {
+            show = false;
+        }
+        if (focus && !row.dataset.focus.includes(focus)) {
+            show = false;
+        }
+        
+        row.style.display = show ? '' : 'none';
+        if (show) {
+            visibleCount++;
+            if (!recommendedEngine) {
+                recommendedEngine = row;
+            }
+        }
+    });
+    
+    // Show recommendation
+    if (visibleCount === 1 && recommendedEngine) {
+        const engineName = recommendedEngine.querySelector('strong').textContent;
+        const recommendation = document.getElementById('recommendation');
+        const recommendationText = document.getElementById('recommendation-text');
+        
+        recommendationText.innerHTML = `
+            Based on your criteria, we recommend the <strong>${engineName}</strong> engine. 
+            It's specifically designed for your use case and should provide the best results.
+        `;
+        recommendation.style.display = 'block';
+    } else {
+        document.getElementById('recommendation').style.display = 'none';
+    }
+}
+
+function showEngineDetails(engineId) {
+    fetch(`/api/engines/${engineId}/docs`)
+        .then(response => response.json())
+        .then(data => {
+            const modal = document.getElementById('engineDetailsModal');
+            const title = document.getElementById('engineDetailsTitle');
+            const body = document.getElementById('engineDetailsBody');
+            const useBtn = document.getElementById('useEngineBtn');
+            
+            title.textContent = `${engineId} Engine Details`;
+            
+            body.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Overview</h6>
+                        <p>${data.overview || 'No overview available.'}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Use Cases</h6>
+                        <p>${data.use_cases || 'No use cases documented.'}</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-12">
+                        <h6>Algorithm</h6>
+                        <p>${data.algorithm || 'No algorithm details available.'}</p>
+                    </div>
+                </div>
+            `;
+            
+            useBtn.onclick = () => {
+                window.location.href = `/playlists/create/${engineId}`;
+            };
+            
+            $(modal).modal('show');
+        })
+        .catch(error => {
+            console.error('Error loading engine details:', error);
+        });
+}
+
+// Initialize filters
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up any default filtering
+    filterEngines();
+});
+</script>
+{% endblock %}

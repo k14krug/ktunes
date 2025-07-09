@@ -4,40 +4,159 @@ from . import resolve_bp
 from models import Track, SpotifyURI, PlayedTrack # Will be needed for POST actions
 from extensions import db
 from services.resolution_service import (
-    load_mismatches, load_not_found,
     resolve_link_track_to_spotify_uri, 
-    resolve_update_track_status,
-    resolve_remove_from_log
+    resolve_update_track_status
 )
-from services.spotify_service import normalize_text # For similarity matching
+from services.spotify_service import normalize_text, get_spotify_client # For similarity matching
 from sqlalchemy import or_
 from thefuzz import fuzz # For similarity scores
-
-# MISMATCH_FILE and NOT_FOUND_FILE are used as defaults in resolution_service
-import json
-import os
 
 @resolve_bp.route('/mismatches')
 @login_required
 def view_mismatches():
-    mismatches = load_mismatches() # Uses default filename from resolution_service
-    # Enrich mismatches with track details if local_track_id is present
-    for item in mismatches:
-        if 'local_track_id' in item:
-            track = Track.query.get(item['local_track_id'])
-            item['local_track_details'] = track # Store the whole track object
-    return render_template('resolve_mismatches.html', mismatches=mismatches, title="Resolve Mismatches")
+    # Query the database view for tracks that need review
+    mismatches_query = """
+        SELECT * FROM spotify_resolution_view 
+        WHERE match_status = 'mismatch_accepted'
+        ORDER BY track_id, match_date DESC
+    """
+    
+    mismatches_raw = db.session.execute(db.text(mismatches_query)).fetchall()
+    
+    # Get Spotify client to fetch track details
+    sp = get_spotify_client()
+    
+    # Group by track_id and check for existing good matches
+    track_groups = {}
+    for row in mismatches_raw:
+        track_id = row.track_id
+        if track_id not in track_groups:
+            track_groups[track_id] = {
+                'local_track': {
+                    'id': row.track_id,
+                    'song': row.local_song,
+                    'artist': row.local_artist,
+                    'album': row.local_album
+                },
+                'mismatches': [],
+                'has_good_match': False,
+                'good_match_uri': None
+            }
+        
+        # Check if this track already has a 'matched' or 'manual_match' record
+        existing_good_match = db.session.execute(db.text("""
+            SELECT uri FROM spotify_uris 
+            WHERE track_id = :track_id 
+            AND status IN ('matched', 'manual_match')
+            ORDER BY created_at DESC
+            LIMIT 1
+        """), {'track_id': track_id}).fetchone()
+        
+        if existing_good_match:
+            track_groups[track_id]['has_good_match'] = True
+            track_groups[track_id]['good_match_uri'] = existing_good_match[0]
+        
+        # Try to get actual Spotify track info from the URI
+        spotify_track_name = "Unknown"
+        spotify_artist_name = "Unknown"
+        
+        if row.spotify_uri and row.spotify_uri.startswith('spotify:track:') and sp:
+            try:
+                track_id_spotify = row.spotify_uri.split(':')[-1]
+                spotify_track_info = sp.track(track_id_spotify)
+                if spotify_track_info:
+                    spotify_track_name = spotify_track_info['name']
+                    spotify_artist_name = ', '.join([artist['name'] for artist in spotify_track_info['artists']])
+            except Exception as e:
+                current_app.logger.warning(f"Could not fetch Spotify track info for URI {row.spotify_uri}: {e}")
+        
+        track_groups[track_id]['mismatches'].append({
+            'log_identifier': f"mismatch_{row.track_id}_{row.spotify_uri.split(':')[-1] if row.spotify_uri else 'unknown'}",
+            'found': f"{spotify_track_name} by {spotify_artist_name}",
+            'spotify_url': row.spotify_url,
+            'spotify_track_uri': row.spotify_uri,
+            'timestamp': row.match_date if row.match_date else None
+        })
+    
+    # Convert grouped data to format expected by template
+    mismatches = []
+    for track_id, group in track_groups.items():
+        if group['has_good_match']:
+            # Get info about the good match
+            good_match_info = "Unknown Track"
+            if group['good_match_uri'] and sp:
+                try:
+                    good_track_id = group['good_match_uri'].split(':')[-1]
+                    good_spotify_info = sp.track(good_track_id)
+                    if good_spotify_info:
+                        good_match_info = f"{good_spotify_info['name']} by {', '.join([artist['name'] for artist in good_spotify_info['artists']])}"
+                except Exception as e:
+                    current_app.logger.warning(f"Could not fetch good match info for URI {group['good_match_uri']}: {e}")
+            
+            # Create a special entry for tracks that already have good matches
+            mismatches.append({
+                'is_duplicate_group': True,
+                'local_track_details': group['local_track'],
+                'good_match_info': good_match_info,
+                'good_match_uri': group['good_match_uri'],
+                'duplicate_count': len(group['mismatches']),
+                'mismatches': group['mismatches']
+            })
+        else:
+            # Regular mismatch entries (no existing good match)
+            for mismatch in group['mismatches']:
+                mismatches.append({
+                    'is_duplicate_group': False,
+                    'log_identifier': mismatch['log_identifier'],
+                    'local_track_details': group['local_track'],
+                    'found': mismatch['found'],
+                    'spotify url': mismatch['spotify_url'],
+                    'spotify_track_uri': mismatch['spotify_track_uri'],
+                    'timestamp': mismatch['timestamp']
+                })
+    
+    return render_template('resolve/resolve_mismatches.html', mismatches=mismatches, title="Resolve Mismatches")
 
 @resolve_bp.route('/not_found')
 @login_required
 def view_not_found():
-    not_found_tracks = load_not_found() # Uses default filename from resolution_service
-    # Enrich not_found_tracks with track details
-    for item in not_found_tracks:
-        if 'local_track_id' in item:
-            track = Track.query.get(item['local_track_id'])
-            item['local_track_details'] = track
-    return render_template('resolve_not_found.html', not_found_tracks=not_found_tracks, title="Resolve Not Found Tracks")
+    # Query tracks with not_found_in_spotify status
+    not_found_spotify_uris = SpotifyURI.query.filter_by(status='not_found_in_spotify').all()
+    
+    # Convert to format expected by the template and detect anomalies
+    not_found_tracks = []
+    for spotify_uri in not_found_spotify_uris:
+        track = spotify_uri.track
+        
+        # Check for anomaly: Does this track have multiple SpotifyURI records?
+        all_uris_for_track = SpotifyURI.query.filter_by(track_id=track.id).all()
+        has_anomaly = len(all_uris_for_track) > 1
+        
+        # If anomaly exists, find any valid Spotify URIs
+        valid_spotify_uris = []
+        if has_anomaly:
+            valid_spotify_uris = [uri for uri in all_uris_for_track 
+                                if uri.uri and uri.uri.startswith('spotify:track:') 
+                                and not uri.uri.endswith('not_found_in_spotify')
+                                and uri.status != 'not_found_in_spotify']
+        
+        item = {
+            'log_identifier': f"notfound_{track.id}",
+            'local_track_details': {
+                'id': track.id,
+                'song': track.song,
+                'artist': track.artist,
+                'album': track.album
+            },
+            'timestamp': spotify_uri.created_at,
+            'has_anomaly': has_anomaly,
+            'total_spotify_uris': len(all_uris_for_track),
+            'valid_spotify_uris': valid_spotify_uris,
+            'spotify_uri_details': all_uris_for_track  # For debugging/detailed view
+        }
+        not_found_tracks.append(item)
+    
+    return render_template('resolve/resolve_not_found.html', not_found_tracks=not_found_tracks, title="Resolve Not Found Tracks")
 
 @resolve_bp.route('/unmatched_tracks')
 @login_required
@@ -148,7 +267,7 @@ def view_unmatched_tracks():
     if auto_resolved_count > 0:
         flash(f"Auto-resolved {auto_resolved_count} duplicate tracks.", 'success')
         
-    return render_template('resolve_unmatched.html', unmatched_tracks=tracks_to_display, title="Resolve Unmatched Tracks")
+    return render_template('resolve/resolve_unmatched.html', unmatched_tracks=tracks_to_display, title="Resolve Unmatched Tracks")
 
 
 # POST routes for Mismatches
@@ -167,9 +286,7 @@ def link_mismatch_to_spotify_track():
     success = resolve_link_track_to_spotify_uri(
         local_track_id=int(local_track_id),
         spotify_uri=spotify_uri_of_mismatch,
-        status='matched', # Confirming the found Spotify track is correct
-        log_identifier=log_identifier,
-        log_filename='mismatch.json' # Explicitly pass filename
+        status='matched' # Confirming the found Spotify track is correct
     )
 
     if success:
@@ -210,9 +327,7 @@ def manual_link_mismatch():
     success = resolve_link_track_to_spotify_uri(
         local_track_id=int(local_track_id),
         spotify_uri=spotify_uri,
-        status='manual_match', # User manually provided this link
-        log_identifier=log_identifier,
-        log_filename='mismatch.json'
+        status='manual_match' # User manually provided this link
     )
 
     if success:
@@ -234,9 +349,7 @@ def mark_mismatch_as_no_match():
 
     success = resolve_update_track_status(
         local_track_id=int(local_track_id),
-        new_status_or_flag='confirmed_no_spotify',
-        log_identifier=log_identifier,
-        log_filename='mismatch.json'
+        new_status_or_flag='confirmed_no_spotify'
     )
 
     if success:
@@ -255,15 +368,28 @@ def ignore_mismatch():
         flash('Missing data for ignoring mismatch.', 'danger')
         return redirect(url_for('resolve.view_mismatches'))
 
-    success = resolve_remove_from_log(
-        log_identifier=log_identifier,
-        filename='mismatch.json'
-    )
-
-    if success:
-        flash('Mismatch ignored and removed from log.', 'success')
-    else:
-        flash('Failed to ignore mismatch. Check logs or if the item was already removed.', 'danger')
+    # Extract track_id from log_identifier (format: "mismatch_{track_id}_{spotify_id}")
+    try:
+        parts = log_identifier.split('_')
+        if len(parts) >= 2 and parts[0] == 'mismatch':
+            track_id = int(parts[1])
+            
+            # Delete the SpotifyURI record with mismatch_accepted status
+            spotify_uri = SpotifyURI.query.filter_by(
+                track_id=track_id, 
+                status='mismatch_accepted'
+            ).first()
+            
+            if spotify_uri:
+                db.session.delete(spotify_uri)
+                db.session.commit()
+                flash('Mismatch ignored and removed from database.', 'success')
+            else:
+                flash('Mismatch record not found in database.', 'warning')
+        else:
+            flash('Invalid log identifier format.', 'danger')
+    except (ValueError, IndexError):
+        flash('Invalid log identifier format.', 'danger')
         
     return redirect(url_for('resolve.view_mismatches'))
 
@@ -288,9 +414,7 @@ def manual_link_not_found():
     success = resolve_link_track_to_spotify_uri(
         local_track_id=int(local_track_id),
         spotify_uri=spotify_uri,
-        status='manual_match', # User manually provided this link
-        log_identifier=log_identifier,
-        log_filename='not_in_spotify.json'
+        status='manual_match' # User manually provided this link
     )
 
     if success:
@@ -311,7 +435,7 @@ def view_not_found_in_spotify_export():
         .all()
     
     return render_template(
-        'resolve_not_found_export.html', 
+        'resolve/resolve_not_found_export.html', 
         tracks=tracks_not_found_on_export, 
         title="Tracks Not Found During Spotify Export"
     )
@@ -404,7 +528,8 @@ def link_unmatched_to_existing():
 @login_required
 def confirm_unmatched_as_new():
     unmatched_track_id = request.form.get('unmatched_track_id')
-    new_category = request.form.get('new_category', 'Uncategorized').strip()
+    # Automatically set new tracks to 'Latest' category
+    new_category = 'Latest'
     spotify_uri_id = request.form.get('spotify_uri_id')
 
 
@@ -412,8 +537,7 @@ def confirm_unmatched_as_new():
         flash('Missing unmatched track ID.', 'danger')
         return redirect(url_for('resolve.view_unmatched_tracks'))
     
-    if not new_category: # Ensure new_category is not empty after stripping
-        new_category = 'Uncategorized'
+    # No need to check if new_category is empty since we're setting it to 'Latest'
 
     try:
         unmatched_track_id = int(unmatched_track_id)
@@ -515,26 +639,6 @@ def ignore_unmatched_track():
 
     return redirect(url_for('resolve.view_unmatched_tracks'))
 
-    spotify_uri = _extract_spotify_uri(manual_spotify_uri_input)
-    if not spotify_uri:
-        flash('Invalid Spotify URI or URL format provided.', 'danger')
-        return redirect(url_for('resolve.view_not_found'))
-
-    success = resolve_link_track_to_spotify_uri(
-        local_track_id=int(local_track_id),
-        spotify_uri=spotify_uri,
-        status='manual_match', # User manually provided this link
-        log_identifier=log_identifier,
-        log_filename='not_in_spotify.json'
-    )
-
-    if success:
-        flash('Track successfully linked manually and "not found" entry resolved.', 'success')
-    else:
-        flash('Failed to manually link track or resolve "not found" entry. Check logs.', 'danger')
-    
-    return redirect(url_for('resolve.view_not_found'))
-
 @resolve_bp.route('/not_found/confirm_no_match', methods=['POST'])
 @login_required
 def confirm_track_not_on_spotify():
@@ -547,9 +651,7 @@ def confirm_track_not_on_spotify():
 
     success = resolve_update_track_status(
         local_track_id=int(local_track_id),
-        new_status_or_flag='confirmed_no_spotify',
-        log_identifier=log_identifier,
-        log_filename='not_in_spotify.json'
+        new_status_or_flag='confirmed_no_spotify'
     )
 
     if success:
@@ -568,14 +670,116 @@ def ignore_not_found():
         flash('Missing data for ignoring "not found" entry.', 'danger')
         return redirect(url_for('resolve.view_not_found'))
 
-    success = resolve_remove_from_log(
-        log_identifier=log_identifier,
-        filename='not_in_spotify.json'
-    )
-
-    if success:
-        flash('"Not found" entry ignored and removed from log.', 'success')
-    else:
-        flash('Failed to ignore "not found" entry. Check logs or if the item was already removed.', 'danger')
+    # Extract track_id from log_identifier (format: "notfound_{track_id}")
+    try:
+        parts = log_identifier.split('_')
+        if len(parts) >= 2 and parts[0] == 'notfound':
+            track_id = int(parts[1])
+            
+            # Delete the SpotifyURI record with not_found_in_spotify status
+            spotify_uri = SpotifyURI.query.filter_by(
+                track_id=track_id, 
+                status='not_found_in_spotify'
+            ).first()
+            
+            if spotify_uri:
+                db.session.delete(spotify_uri)
+                db.session.commit()
+                flash('"Not found" entry ignored and removed from database.', 'success')
+            else:
+                flash('"Not found" record not found in database.', 'warning')
+        else:
+            flash('Invalid log identifier format.', 'danger')
+    except (ValueError, IndexError):
+        flash('Invalid log identifier format.', 'danger')
         
+    return redirect(url_for('resolve.view_not_found'))
+
+@resolve_bp.route('/cleanup_duplicates', methods=['POST'])
+@login_required
+def cleanup_duplicates():
+    track_id = request.form.get('track_id')
+    
+    if not track_id:
+        flash('Missing track ID for cleanup.', 'danger')
+        return redirect(url_for('resolve.view_mismatches'))
+    
+    try:
+        track_id = int(track_id)
+        
+        # Check if track has a good match (matched or manual_match)
+        good_match = SpotifyURI.query.filter_by(
+            track_id=track_id
+        ).filter(
+            SpotifyURI.status.in_(['matched', 'manual_match'])
+        ).first()
+        
+        if not good_match:
+            flash('No good match found for this track. Cannot clean up duplicates.', 'warning')
+            return redirect(url_for('resolve.view_mismatches'))
+        
+        # Delete all mismatch_accepted records for this track
+        duplicate_count = SpotifyURI.query.filter_by(
+            track_id=track_id,
+            status='mismatch_accepted'
+        ).count()
+        
+        SpotifyURI.query.filter_by(
+            track_id=track_id,
+            status='mismatch_accepted'
+        ).delete()
+        
+        db.session.commit()
+        
+        flash(f'Successfully removed {duplicate_count} duplicate mismatch records. The good match was preserved.', 'success')
+        
+    except (ValueError, Exception) as e:
+        db.session.rollback()
+        flash(f'Error cleaning up duplicates: {e}', 'danger')
+    
+    return redirect(url_for('resolve.view_mismatches'))
+
+@resolve_bp.route('/fix_not_found_anomaly', methods=['POST'])
+@login_required
+def fix_not_found_anomaly():
+    """Fix anomaly where a track has both 'not_found_in_spotify' and valid Spotify URI records."""
+    log_identifier = request.form.get('log_identifier')
+    local_track_id = request.form.get('local_track_id')
+    valid_spotify_uri = request.form.get('valid_spotify_uri')
+
+    if not all([log_identifier, local_track_id, valid_spotify_uri]):
+        flash('Missing data for fixing anomaly.', 'danger')
+        return redirect(url_for('resolve.view_not_found'))
+
+    try:
+        track_id = int(local_track_id)
+        
+        # Get all SpotifyURI records for this track
+        all_uris = SpotifyURI.query.filter_by(track_id=track_id).all()
+        
+        current_app.logger.info(f"Fixing anomaly for track {track_id}. Found {len(all_uris)} SpotifyURI records.")
+        
+        # Find and delete the 'not_found_in_spotify' record(s)
+        not_found_records = [uri for uri in all_uris if uri.status == 'not_found_in_spotify']
+        
+        for record in not_found_records:
+            current_app.logger.info(f"Deleting not_found_in_spotify record ID {record.id} with URI: {record.uri}")
+            db.session.delete(record)
+        
+        # Ensure the valid URI has the correct status
+        valid_record = SpotifyURI.query.filter_by(track_id=track_id, uri=valid_spotify_uri).first()
+        if valid_record:
+            if valid_record.status not in ['matched', 'manual_match']:
+                valid_record.status = 'matched'
+                current_app.logger.info(f"Updated valid record ID {valid_record.id} status to 'matched'")
+        
+        db.session.commit()
+        
+        flash(f'Anomaly fixed! Removed {len(not_found_records)} duplicate "not found" record(s) and kept the valid Spotify URI.', 'success')
+        
+    except (ValueError, Exception) as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error fixing not found anomaly: {e}")
+        flash(f'Error fixing anomaly: {e}', 'danger')
+    
     return redirect(url_for('resolve.view_not_found'))

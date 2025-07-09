@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4>Create Playlist with {{ engine_name }}</h4>
+                    <a href="{{ url_for('playlists.new_playlist') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-arrow-left"></i> Back to Engines
+                    </a>
+                </div>
+                
+                <div class="card-body">
+                    <form method="POST">
+                        {{ form.hidden_tag() }}
+                        
+                        <!-- Form fields -->
+                        <div class="form-group">
+                            {{ form.playlist_name.label(class="form-label") }}
+                            {{ form.playlist_name(class="form-control") }}
+                            {% if form.playlist_name.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.playlist_name.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="form-group">
+                            {{ form.playlist_length.label(class="form-label") }}
+                            {{ form.playlist_length(class="form-control") }}
+                            <small class="form-text text-muted">
+                                Recommended: 40+ hours for optimal category balance with {{ engine_name }}
+                            </small>
+                            {% if form.playlist_length.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.playlist_length.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="form-group">
+                            {{ form.minimum_recent_add_playcount.label(class="form-label") }}
+                            {{ form.minimum_recent_add_playcount(class="form-control") }}
+                            <small class="form-text text-muted">
+                                Tracks with fewer than this many plays are considered "new discoveries"
+                            </small>
+                            {% if form.minimum_recent_add_playcount.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.minimum_recent_add_playcount.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="form-group mt-4">
+                            {{ form.submit(class="btn btn-primary btn-lg btn-block") }}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Help Sidebar -->
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6><i class="fas fa-info-circle"></i> {{ engine_name }} Info</h6>
+                </div>
+                <div class="card-body">
+                    <p class="small">
+                        <strong>Best for:</strong> Large personal music collections with sophisticated category management and music discovery.
+                    </p>
+                    <hr>
+                    <h6>Expected Results:</h6>
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <div class="border-right">
+                                <h4 class="text-primary">~600</h4>
+                                <small class="text-muted">Songs</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <h4 class="text-success">~40h</h4>
+                            <small class="text-muted">Duration</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h6><i class="fas fa-lightbulb"></i> Tips</h6>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled">
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success"></i> 
+                            <small>Works best with 10,000+ tracks</small>
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success"></i> 
+                            <small>40+ hour playlists give optimal balance</small>
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success"></i> 
+                            <small>Set recent add count to match discovery rate</small>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,5 +1,6 @@
 import json
 import os
+
 def load_config(force_defaults=False):
     default_config = {
         'itunes_dir': '/mnt/c/Users/nwkru/Music/iTunes',
@@ -15,6 +16,14 @@ def load_config(force_defaults=False):
                 {'name': 'Old', 'percentage': 7.0, 'artist_repeat': 200},
                 {'name': 'Album', 'percentage': 3.0, 'artist_repeat': 200}
             ]
+        },
+        'scheduled_tasks': {
+            'export_default_playlist_to_spotify_on_startup': {
+                'enabled': True
+            },
+            'export_default_playlist_to_spotify_hourly': {
+                'enabled': True
+            }
         }
     }
 
@@ -39,7 +48,7 @@ def load_config(force_defaults=False):
             with open(config_path, 'w') as f:
                 json.dump(default_config, f, indent=4)
             return default_config
-        
+
 def dump_config(config: dict, keys_to_dump=None) -> dict:
     """
     Return a filtered copy of config containing only the keys specified.
@@ -51,6 +60,16 @@ def dump_config(config: dict, keys_to_dump=None) -> dict:
         keys_to_dump = [
             'itunes_dir',
             'itunes_lib',
-            'playlist_defaults'
+            'playlist_defaults',
+            'scheduled_tasks'
         ]
     return { key: config[key] for key in keys_to_dump if key in config }
+
+def save_config(config: dict):
+    """
+    Save the configuration to config.json.
+    """
+    config_path = 'config.json'
+    with open(config_path, 'w') as f:
+        # Use dump_config to ensure only persistable data is written
+        json.dump(dump_config(config), f, indent=4)

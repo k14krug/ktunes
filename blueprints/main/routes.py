@@ -26,21 +26,68 @@ def update_database_from_xml():
 @main_bp.route('/')
 @login_required
 def index():
+    """Main landing page with dashboard overview."""
+    # Get some basic stats for the dashboard
+    from models import Track, Playlist
+    
+    # Basic statistics
+    total_tracks = Track.query.count()
+    total_playlists = db.session.query(Playlist.playlist_name)\
+        .filter_by(username=current_user.username)\
+        .distinct().count()
+    
+    # Total number of songs in all playlists
+    total_playlist_songs = Playlist.query.filter_by(username=current_user.username).count()
+    
+    # Get the date of the latest playlist
+    latest_playlist_date = db.session.query(db.func.max(Playlist.playlist_date))\
+        .filter_by(username=current_user.username)\
+        .scalar()
+    
+    # Get last 5 tracks added from main categories (the 6 default categories)
+    main_categories = ['RecentAdd', 'Latest', 'In Rot', 'Other', 'Old', 'Album']
+    recent_categorized_tracks = Track.query\
+        .filter(Track.category.in_(main_categories))\
+        .filter(Track.date_added.isnot(None))\
+        .order_by(Track.date_added.desc())\
+        .limit(5)\
+        .all()
+    
+    # Get last 5 tracks with category "Unmatched" - ordered by last_play_dt (most recent first)
+    recent_unmatched_tracks = Track.query\
+        .filter_by(category='Unmatched')\
+        .order_by(Track.last_play_dt.desc())\
+        .limit(5)\
+        .all()
+    
+    return render_template(
+        'index.html',
+        total_tracks=total_tracks,
+        total_playlists=total_playlists,
+        total_playlist_songs=total_playlist_songs,
+        latest_playlist_date=latest_playlist_date,
+        recent_categorized_tracks=recent_categorized_tracks,
+        recent_unmatched_tracks=recent_unmatched_tracks
+    )
+
+@main_bp.route('/classic-generator')
+@login_required
+def classic_generator():
+    """Classic kTunes playlist generator form."""
     # Reload config to ensure we have the latest values
     # kkrug 1/31/2025 see change_log.md for why next two lines are commented out
-    #global config
+    #config.reload()
     #config = load_config()
     config = current_app.config
     if request.method == 'GET':
         # Initialize PlaylistGenerator with default values to get initial track counts
-        default_categories = config['playlist_defaults']['categories']
+        playlist_config = config['playlist_defaults'].copy()
+        playlist_config['playlist_name'] = ""
+        playlist_config['target_platform'] = 'local'
+        
         generator = PlaylistGenerator(
-            playlist_name="",  # Empty placeholder
-            playlist_length=config['playlist_defaults']['playlist_length'],
-            minimum_recent_add_playcount=config['playlist_defaults']['minimum_recent_add_playcount'],
-            categories=default_categories,
-            username=current_user.username,
-            target_platform='local'  # Added for UI context
+            user=current_user,
+            config=playlist_config
         )
 
         # Fetch the most recent playlist and last played track position
@@ -52,7 +99,7 @@ def index():
         track_counts = generator._get_track_counts()
         
     return render_template(
-        'index.html',
+        'playlists/ktunes_classic_form.html',
         config=config['playlist_defaults'],
         track_counts=track_counts,
         recent_playlist=recent_playlist,  # Pass the recent playlist to the template
@@ -114,7 +161,14 @@ def generate_playlist():
 
     # Generate playlist logic...
     current_app.logger.info("Instantiating PlaylistGenerator, then calling generate()")
-    generator = PlaylistGenerator(playlist_name, playlist_length, minimum_recent_add_playcount, categories, current_user.username, target_platform='local') # Added for UI context
+    playlist_config = {
+        'playlist_name': playlist_name,
+        'playlist_length': playlist_length,
+        'minimum_recent_add_playcount': minimum_recent_add_playcount,
+        'categories': categories,
+        'target_platform': 'local'
+    }
+    generator = PlaylistGenerator(user=current_user, config=playlist_config)
 
     # Initialize artist_last_played based on user choice
     if use_recent_playlist and recent_playlist_name:
@@ -264,7 +318,7 @@ def played_tracks():
             print(f"request.form['date_added'] = {request.form['date_added']}")
             track.date_added = datetime.strptime(request.form['date_added'], '%Y-%m-%dT%H:%M:%S')
             track.last_play_dt = datetime.strptime(request.form['last_play_dt'], '%Y-%m-%dT%H:%M:%S')
-            track.spotify_uri = request.form['spotify_uri']
+            track.spotify_uris = request.form['spotify_uri']
             db.session.commit()
             flash('Track updated successfully', 'success')
             return redirect(url_for('main.tracks'))

@@ -1,0 +1,212 @@
+<!-- Enhanced Playlist Creation with Contextual Help -->
+<!-- templates/playlists/create_playlist.html -->
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <!-- Main Form Column -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4>Create Playlist with {{ engine_name }}</h4>
+                    <button class="btn btn-outline-info btn-sm" 
+                            data-toggle="collapse" 
+                            data-target="#engineHelp">
+                        <i class="fas fa-question-circle"></i> How it Works
+                    </button>
+                </div>
+                
+                <!-- Collapsible Engine Help -->
+                <div class="collapse" id="engineHelp">
+                    <div class="card-body bg-light">
+                        <h6>{{ engine_name }} Quick Guide</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>What it does:</strong>
+                                <p class="small">{{ engine_description }}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Best for:</strong>
+                                <ul class="small">
+                                    {% for use_case in engine_use_cases %}
+                                    <li>{{ use_case }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                        <a href="{{ url_for('playlists.engine_documentation', engine_id=engine_id) }}" 
+                           target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-external-link-alt"></i> Full Documentation
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="card-body">
+                    <form method="POST">
+                        {{ form.hidden_tag() }}
+                        
+                        <!-- Form fields with contextual help -->
+                        <div class="form-group">
+                            {{ form.playlist_name.label(class="form-label") }}
+                            {{ form.playlist_name(class="form-control") }}
+                            {% if form.playlist_name.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.playlist_name.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="form-group">
+                            <div class="d-flex justify-content-between align-items-center">
+                                {{ form.playlist_length.label(class="form-label") }}
+                                <button type="button" class="btn btn-link btn-sm p-0" 
+                                        data-toggle="tooltip" 
+                                        title="For {{ engine_name }}: Recommended 40+ hours for best results">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </div>
+                            {{ form.playlist_length(class="form-control") }}
+                            <small class="form-text text-muted">
+                                {{ engine_length_guidance }}
+                            </small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <div class="d-flex justify-content-between align-items-center">
+                                {{ form.minimum_recent_add_playcount.label(class="form-label") }}
+                                <button type="button" class="btn btn-link btn-sm p-0" 
+                                        data-toggle="tooltip" 
+                                        title="Songs with fewer plays will be prioritized for discovery">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </div>
+                            {{ form.minimum_recent_add_playcount(class="form-control") }}
+                            <small class="form-text text-muted">
+                                Tracks with fewer than this many plays are considered "new discoveries"
+                            </small>
+                        </div>
+                        
+                        <!-- Advanced Settings (Collapsible) -->
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <button class="btn btn-link" type="button" 
+                                        data-toggle="collapse" 
+                                        data-target="#advancedSettings">
+                                    <i class="fas fa-cog"></i> Advanced Settings
+                                </button>
+                            </div>
+                            <div class="collapse" id="advancedSettings">
+                                <div class="card-body">
+                                    <!-- Engine-specific advanced options would go here -->
+                                    <p class="text-muted">
+                                        Advanced settings for {{ engine_name }} would appear here.
+                                        These might include category percentages, artist repeat intervals, etc.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mt-4">
+                            {{ form.submit(class="btn btn-primary btn-lg btn-block") }}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Help Sidebar -->
+        <div class="col-md-4">
+            <!-- Engine Quick Stats -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6><i class="fas fa-chart-bar"></i> Expected Results</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <div class="border-right">
+                                <h4 class="text-primary" id="estimated-songs">~600</h4>
+                                <small class="text-muted">Songs</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <h4 class="text-success" id="estimated-time">~40h</h4>
+                            <small class="text-muted">Duration</small>
+                        </div>
+                    </div>
+                    <hr>
+                    <h6>Category Breakdown:</h6>
+                    <div class="progress mb-2" style="height: 20px;">
+                        <div class="progress-bar bg-primary" style="width: 20%">RecentAdd</div>
+                        <div class="progress-bar bg-success" style="width: 25%">Latest</div>
+                        <div class="progress-bar bg-info" style="width: 35%">In Rot</div>
+                        <div class="progress-bar bg-warning" style="width: 20%">Other+</div>
+                    </div>
+                    <small class="text-muted">
+                        Distribution will adjust based on your collection
+                    </small>
+                </div>
+            </div>
+            
+            <!-- Tips Card -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6><i class="fas fa-lightbulb"></i> Tips for {{ engine_name }}</h6>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled">
+                        {% for tip in engine_tips %}
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success"></i> 
+                            <small>{{ tip }}</small>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Recent Activity -->
+            <div class="card">
+                <div class="card-header">
+                    <h6><i class="fas fa-history"></i> Recent Playlists</h6>
+                </div>
+                <div class="card-body">
+                    {% if recent_playlists %}
+                        {% for playlist in recent_playlists %}
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <strong>{{ playlist.name }}</strong><br>
+                                <small class="text-muted">{{ playlist.created | timeago }}</small>
+                            </div>
+                            <span class="badge badge-secondary">{{ playlist.song_count }}</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted">No recent playlists</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Dynamic calculations based on form input
+document.getElementById('playlist_length').addEventListener('input', function(e) {
+    const hours = parseFloat(e.target.value) || 0;
+    const estimatedSongs = Math.round(hours * 15); // ~15 songs per hour
+    
+    document.getElementById('estimated-songs').textContent = `~${estimatedSongs}`;
+    document.getElementById('estimated-time').textContent = `~${hours}h`;
+});
+
+// Initialize tooltips
+$(function () {
+    $('[data-toggle="tooltip"]').tooltip();
+});
+</script>
+{% endblock %}

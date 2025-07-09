@@ -4,7 +4,7 @@
     <h1 class="mt-4">Manage Genres</h1>
     <div class="row mt-3">
         <div class="col-md-6">
-            <form method="POST" action="{{ url_for('genres.manage_genres') }}">
+            <form method="POST" action="{{ url_for('playlists.manage_genres') }}">
                 {{ form.hidden_tag() }}
                 <div class="form-group">
                     {{ form.name.label(class="form-label") }}

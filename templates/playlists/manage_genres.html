@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Tracks</h1>
 
-<form method="GET" action="{{ url_for('genres.manage_genres') }}">
+<form method="GET" action="{{ url_for('playlists.manage_genres') }}">
     <div class="form-row">
         <div class="form-group col-md-4">
             <input type="text" class="form-control" name="song" placeholder="Filter by Song" value="{{ request.args.get('song', '') }}">

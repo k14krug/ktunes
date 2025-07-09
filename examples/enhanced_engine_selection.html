@@ -1,0 +1,113 @@
+<!-- Enhanced Engine Selection Template -->
+<!-- templates/playlists/select_engine.html -->
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2>Choose Your Playlist Engine</h2>
+    <p class="text-muted">Different engines create different types of playlists. Choose the one that best fits your listening style.</p>
+    
+    <div class="row">
+        {% for engine in engines %}
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">{{ engine.name }}</h5>
+                    <span class="badge badge-primary">{{ engine.id }}</span>
+                </div>
+                <div class="card-body">
+                    <!-- Dynamic content loaded from engine info -->
+                    <p class="card-text">{{ engine.description | safe }}</p>
+                    
+                    <!-- Key Features -->
+                    <h6>Key Features:</h6>
+                    <ul class="list-unstyled">
+                        {% for feature in engine.features %}
+                        <li><i class="fas fa-check text-success"></i> {{ feature }}</li>
+                        {% endfor %}
+                    </ul>
+                    
+                    <!-- Best For -->
+                    <div class="mt-3">
+                        <h6>Best For:</h6>
+                        <div class="d-flex flex-wrap">
+                            {% for use_case in engine.use_cases %}
+                            <span class="badge badge-light mr-1 mb-1">{{ use_case }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <!-- Performance Stats -->
+                    {% if engine.stats %}
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            Typical playlist: {{ engine.stats.typical_length }} • 
+                            Collections: {{ engine.stats.collection_size }}
+                        </small>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer">
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('playlists.create_playlist', engine_id=engine.id) }}" 
+                           class="btn btn-primary">
+                            Use This Engine
+                        </a>
+                        <a href="#" class="btn btn-outline-secondary" 
+                           data-toggle="modal" 
+                           data-target="#engineModal{{ loop.index }}">
+                            <i class="fas fa-info-circle"></i> Details
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Detailed Modal for each engine -->
+        <div class="modal fade" id="engineModal{{ loop.index }}" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">{{ engine.name }} - Technical Details</h5>
+                        <button type="button" class="close" data-dismiss="modal">
+                            <span>&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Load engine documentation via AJAX or server-side -->
+                        <div id="engine-docs-{{ engine.id }}">
+                            Loading documentation...
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <a href="{{ engine.documentation_url }}" target="_blank" class="btn btn-outline-primary">
+                            <i class="fas fa-external-link-alt"></i> Full Documentation
+                        </a>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+// Load engine documentation on modal open
+$('.modal').on('show.bs.modal', function(e) {
+    const engineId = $(this).attr('id').replace('engineModal', '');
+    const docsContainer = $(this).find('[id^="engine-docs-"]');
+    
+    // Load engine documentation via AJAX
+    fetch(`/api/engines/${engineId}/docs`)
+        .then(response => response.text())
+        .then(html => {
+            docsContainer.html(html);
+        })
+        .catch(error => {
+            docsContainer.html('<p class="text-danger">Error loading documentation.</p>');
+        });
+});
+</script>
+{% endblock %}

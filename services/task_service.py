@@ -31,20 +31,30 @@ def run_export_default_playlist(username=None):
         # kkrug 1/15/2025 - Removed the date from the playlist name
         # kkurg 2/7/2025 - Added the date back into the playlist name. Hoping this will tell me if the playlist is recent.
         #playlist_name = "kTunes Radio"
-        success, message = generate_default_playlist(playlist_name, username, target_platform='spotify')
+        success, message = _generate_playlist_and_export(playlist_name, username)
         if not success:
-            current_app.logger.error(f"Failed to generate playlist: {message}")
-            return False, f"Failed to generate playlist: {message}"
+            current_app.logger.error(f"Failed to generate and export playlist: {message}")
+            return False, f"Failed to generate and export playlist: {message}"
 
-        current_app.logger.info(f"Playlist '{playlist_name}' generated successfully: {message}")
+        return True, message
 
-        # Step 3: Export the playlist to Spotify
-        print("Exporting playlist to Spotify")
-        #db = current_app.extensions['sqlalchemy'].db
-        export_message = export_playlist_to_spotify(playlist_name, username)
-        current_app.logger.info(f"Task completed: {export_message}")
+def _generate_playlist_and_export(playlist_name, username):
+    """
+    Generates the playlist and then exports it.
+    """
+    success, playlist_entries = generate_default_playlist(playlist_name, username, target_platform='spotify')
+    if not success:
+        return False, playlist_entries
 
-        return True, export_message
+    current_app.logger.info(f"Playlist '{playlist_name}' generated successfully with {len(playlist_entries)} tracks.")
+
+    # Step 3: Export the playlist to Spotify
+    print("Exporting playlist to Spotify")
+    export_message = export_playlist_to_spotify(playlist_name, username, playlist_entries)
+    current_app.logger.info(f"Task completed: {export_message}")
+
+    return True, export_message
+
 def task_service_test():
     with current_app.app_context():
         current_app.logger.info("Executing test_context_job. In task_service.py.test_service_test")

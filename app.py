@@ -15,7 +15,7 @@ from blueprints.auth import auth_bp
 from blueprints.spotify import spotify_bp
 from blueprints.main import main_bp
 from blueprints.resolve import resolve_bp # Added for resolution UI
-#from blueprints.genres import genres_bp
+from blueprints.playlists import bp as playlists_bp
 import app_context_holder # Module to hold the global app context for APScheduler tasks
 
 
@@ -24,7 +24,7 @@ global_app = None
 # Load environment variables from .env file for thing like Spotify and OPENAI API keys
 # This must be done before the genres blueprint because it references the OPENAI_API_KEY
 load_dotenv()
-from blueprints.genres import genres_bp
+
 
 def configure_logging(app):
     """ Configure logging levels & format for both Flask and APScheduler logs. """
@@ -113,28 +113,17 @@ def create_app(app_debug=False):
     #        scheduler.start()
     # It's now done in configure_scheduler(app)
 
-    # Run startup tasks within an app_context
     with app.app_context():
-        app.logger.debug("Performing Startup Tasks...")
         db.create_all()
-        if not app_debug or not os.environ.get('WERKZEUG_RUN_MAIN'):
-            # kkrug 1/31/2025 - Commented out this line. See change_log.md
-            #config = load_config()
+        if os.environ.get('FLASK_RUN_FROM_CLI') != 'true':
             update_database_from_xml_logic(app.config, db)
-
-    # All routes are now registered in the blueprints
-    #from routes import register_routes
-    #register_routes(app)
-
-    # Register your jobs
-    print("Registering jobs")
-    register_jobs()
+            register_jobs(app)
 
     app.register_blueprint(main_bp, url_prefix='/main') 
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')  
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(spotify_bp, url_prefix='/spotify')
-    app.register_blueprint(genres_bp, url_prefix='/genres')
+    app.register_blueprint(playlists_bp, url_prefix='/playlists')
     app.register_blueprint(resolve_bp, url_prefix='/resolve') # Added for resolution UI
     print("Template search paths after all 6 blueprints registered:", app.jinja_loader.searchpath)
 
@@ -144,29 +133,36 @@ def create_app(app_debug=False):
     
     @app.route('/')
     def root():
+        #print("Redirecting to main index")
         return redirect(url_for('main.index'))
 
     app_context_holder.app = app #  Set the global reference in the holder module to the app for use in the APScheduler tasks
     
     return app
 
+def register_job(app, task_id):
+    """Register a single job based on its task_id."""
+    if task_id == 'export_default_playlist_to_spotify_on_startup':
+        if app.config.get('scheduled_tasks', {}).get(task_id, {}).get('enabled', False):
+            scheduler.add_job(
+                id=task_id,
+                func='tasks.scheduled_tasks:export_playlist_wrapper',
+                replace_existing=True
+            )
+    elif task_id == 'export_default_playlist_to_spotify_hourly':
+        if app.config.get('scheduled_tasks', {}).get(task_id, {}).get('enabled', False):
+            scheduler.add_job(
+                id=task_id,
+                func='tasks.scheduled_tasks:export_playlist_wrapper',
+                trigger='interval',
+                hours=3,
+                replace_existing=True
+            )
 
-def register_jobs():
-    
-    # run the export_default_playlist_to_spotify_task on app startup
-    scheduler.add_job(
-        id='export_default_playlist_to_spotify_on_startup',
-        func='tasks.scheduled_tasks:export_playlist_wrapper'
-    )
-
-    # run the export_default_playlist_to_spotify_task every 3 hours
-    scheduler.add_job(
-        id='export_default_playlist_to_spotify_hourly',
-        func='tasks.scheduled_tasks:export_playlist_wrapper',  # top-level function
-        trigger='interval',
-        hours=3,
-        replace_existing=True
-    )
+def register_jobs(app):
+    """Register all jobs based on the configuration."""
+    for task_id in app.config.get('scheduled_tasks', {}).keys():
+        register_job(app, task_id)
 
 
 def find_open_port(start_port=5010, end_port=5500):

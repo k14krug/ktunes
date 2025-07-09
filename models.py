@@ -1,6 +1,6 @@
 # models.py
 from flask_login import UserMixin
-from sqlalchemy import Column, Integer, String, DateTime, func, Table, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, func, Table, ForeignKey, JSON
 from sqlalchemy.orm import synonym, relationship
 from extensions import db
 from datetime import datetime
@@ -84,6 +84,15 @@ class Playlist(db.Model):
     play_cnt = Column(Integer, nullable=False)
     artist_common_name = Column(String, nullable=True)
     username = Column(String, nullable=True)
+    engine_id = Column(String(50), nullable=True)
+
+class PlaylistConfiguration(db.Model):
+    __tablename__ = 'playlist_configurations'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('Users.id'), nullable=False)
+    name = Column(String(100), nullable=False)
+    engine_id = Column(String(50), nullable=False)
+    config_data = Column(JSON, nullable=False)
 
 class User(db.Model, UserMixin):
     __tablename__ = 'Users'

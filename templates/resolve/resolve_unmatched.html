@@ -61,7 +61,7 @@
                         <div class="d-flex flex-wrap gap-2">
                             <!-- Confirm as New Track -->
                             <button type="button" class="btn btn-success btn-sm mb-2" 
-                                    data-bs-toggle="modal" data-bs-target="#confirmNewModal-{{ unmatched_track.unmatched.track_id }}">
+                                    data-toggle="modal" data-target="#confirmNewModal-{{ unmatched_track.unmatched.track_id }}">
                                 <i class="fas fa-plus mr-1"></i>Confirm as New Track
                             </button>
                             
@@ -154,7 +154,9 @@
                         <h5 class="modal-title" id="confirmNewModalLabel-{{ unmatched_track.unmatched.track_id }}">
                             <i class="fas fa-plus mr-2"></i>Confirm New Track: {{ unmatched_track.unmatched.song }}
                         </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
                     <div class="modal-body">
                         <p>You are about to confirm "<strong>{{ unmatched_track.unmatched.song }} - {{ unmatched_track.unmatched.artist }}</strong>" as a new track in your library.</p>
@@ -162,19 +164,13 @@
                         <input type="hidden" name="spotify_uri_id" 
                                value="{{ unmatched_track.unmatched.spotify_uri_id if unmatched_track.unmatched.spotify_uri_id else '' }}">
                         
-                        <div class="mb-3">
-                            <label for="new_category-{{ unmatched_track.unmatched.track_id }}" class="form-label">
-                                Category (optional)
-                            </label>
-                            <input type="text" class="form-control" 
-                                   id="new_category-{{ unmatched_track.unmatched.track_id }}" 
-                                   name="new_category" 
-                                   placeholder="e.g., Imported from Spotify, General">
-                            <small class="form-text text-muted">If left blank, will be set to 'Uncategorized'</small>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle mr-2"></i>
+                            This track will be confirmed as a new track and automatically categorized as <strong>"Latest"</strong>.
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                         <button type="submit" class="btn btn-success">
                             <i class="fas fa-check mr-1"></i>Confirm New Track
                         </button>
@@ -193,4 +189,34 @@
         </div>
     </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Debug: Log when modal buttons are clicked
+    $('[data-toggle="modal"]').on('click', function() {
+        var target = $(this).data('target');
+        console.log('Modal button clicked, target:', target);
+        
+        // Double-check that the target modal exists
+        if ($(target).length === 0) {
+            console.error('Modal target not found:', target);
+        }
+    });
+    
+    // Debug: Log modal events
+    $('.modal').on('show.bs.modal', function(e) {
+        console.log('Modal showing:', this.id);
+    });
+    
+    $('.modal').on('shown.bs.modal', function(e) {
+        console.log('Modal shown:', this.id);
+    });
+    
+    $('.modal').on('hide.bs.modal', function(e) {
+        console.log('Modal hiding:', this.id);
+    });
+});
+</script>
 {% endblock %}

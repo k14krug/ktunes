@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple, Any
 from sqlalchemy.sql import func
 from sqlalchemy import text, or_, tuple_
 from sqlalchemy.orm import joinedload
-from models import db, Track, Playlist, SpotifyURI # Added SpotifyURI
+from models import db, Track, Playlist, SpotifyURI
 from config_loader import load_config
 from datetime import datetime, timedelta
 import numpy as np
@@ -13,6 +13,9 @@ import os
 from collections import defaultdict
 from pytz import timezone
 from tzlocal import get_localzone
+
+from services.base_playlist_engine import BasePlaylistEngine
+from blueprints.playlists.forms import PlaylistGeneratorForm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,11 +33,14 @@ def generate_default_playlist(playlist_name, username=None, target_platform='loc
         print(f"Start of generating_default_playlist '{playlist_name}', username: {username}")
         # Load hardcoded default configuration
         config = load_config(force_defaults=True)
-        playlist_length = config['playlist_defaults']['playlist_length']
-        minimum_recent_add_playcount = config['playlist_defaults']['minimum_recent_add_playcount']
-        categories = config['playlist_defaults']['categories']
-        # if called from a route then we'll user the current_user, else if from a scheduled task, the username must be passed in.
-        username = username or current_user.username
+        
+        # If called from a route, use the current_user. If from a scheduled task, look up the user by the provided username.
+        user = None
+        if current_user and current_user.is_authenticated:
+            user = current_user
+        elif username:
+            from models import User
+            user = User.query.filter_by(username=username).first()
         
         # Check if a playlist with this name already exists
         existing_playlist = Playlist.query.filter_by(playlist_name=playlist_name, username=username).first()
@@ -43,33 +49,58 @@ def generate_default_playlist(playlist_name, username=None, target_platform='loc
             Playlist.query.filter_by(playlist_name=playlist_name, username=username).delete()
             db.session.commit()
         
+        # Add the playlist_name to the config
+        config['playlist_defaults']['playlist_name'] = playlist_name
+        
         # Initialize the PlaylistGenerator
-        generator = PlaylistGenerator(
-            playlist_name=playlist_name,
-            playlist_length=playlist_length,
-            minimum_recent_add_playcount=minimum_recent_add_playcount,
-            categories=categories,
-            username=username,
-            target_platform=target_platform
-        )
+        generator = PlaylistGenerator(user=user, config=config['playlist_defaults'])
+        
         # Initialize artist_last_played
         generator._initialize_artist_last_played(None, None)
 
         # Generate the playlist
-        playlist, stats = generator.generate()
+        playlist_entries, stats = generator.generate()
         print(f"Playlist '{playlist_name}' generated successfully. Stats: {stats}")
 
-        return True, f"Playlist '{playlist_name}' generated successfully."
+        return True, playlist_entries
 
     except Exception as e:
         print(f"Error: {str(e)}")
         return False, f"Error: {str(e)}"
 
 
-class PlaylistGenerator:
-    def __init__(self, playlist_name: str, playlist_length: int, minimum_recent_add_playcount: int, categories: List[Dict[str, Any]], username: str, target_platform: str = 'local'):
+class PlaylistGenerator(BasePlaylistEngine):
+    """
+    kTunes Classic Playlist Engine
+    
+    Time-weighted, category-balanced playlist generation with smart artist repeat management.
+    Designed for large-scale playlists (600+ songs) with automatic music aging and discovery prioritization.
+    
+    Key Features:
+    - 6-tier category system with automatic migration (RecentAdd → Latest → In Rot → Other → Old → Album)
+    - Smart artist repeat intervals to prevent fatigue
+    - Category exhaustion handling with intelligent fallbacks
+    - Memory-optimized for large collections
+    
+    See docs/engines/ktunes-classic-engine.md for complete documentation.
+    """
+    ENGINE_ID = "ktunes_classic"
+    ENGINE_NAME = "kTunes Classic"
 
-        self.target_platform = target_platform
+    @staticmethod
+    def get_configuration_form():
+        return PlaylistGeneratorForm
+
+    def __init__(self, user, config):
+        super().__init__(user, config)
+        
+        self.playlist_name = self.config['playlist_name']
+        self.playlist_length = self.config['playlist_length']
+        self.minimum_recent_add_playcount = self.config['minimum_recent_add_playcount']
+        self.categories = {cat['name']: cat for cat in self.config['categories']}
+        self.username = self.user.username if self.user else "default"
+        self.target_platform = self.config.get('target_platform', 'local')
+
         # Load all tracks into memory once during initialization
         tracks_query = db.session.query(Track).outerjoin(SpotifyURI, Track.id == SpotifyURI.track_id)
 
@@ -89,24 +120,9 @@ class PlaylistGenerator:
         for track in self.all_tracks.values():
             self.category_tracks[track.category].append(track)
 
-        """
-        Initialize the PlaylistGenerator.
-
-        :param playlist_name: Name of the playlist
-        :param playlist_length: Length of the playlist in minutes
-        :param minimum_recent_add_playcount: Minimum play count for recent additions
-        :param categories: List of category dictionaries with 'name', 'percentage', and 'artist_repeat' keys
-        :param username: Username of the playlist creator
-        :param target_platform: The intended platform for the playlist ('spotify' or 'local')
-        """
-        self.playlist_name = playlist_name
-        self.playlist_length = playlist_length
-        self.minimum_recent_add_playcount = minimum_recent_add_playcount
-        self.categories = {cat['name']: cat for cat in categories}  # Convert to dictionary for easier access
-        self.username = username
-        self.total_songs = int(playlist_length * 60 / 4)  # Assuming average song length of 4 minutes
+        self.total_songs = int(self.playlist_length * 60 / 4)  # Assuming average song length of 4 minutes
         self.playlist: List[Dict[str, Any]] = []
-        self.category_counts = {cat['name']: int(self.total_songs * cat['percentage'] / 100) for cat in categories}
+        self.category_counts = {cat['name']: int(self.total_songs * cat['percentage'] / 100) for cat in self.config['categories']}
         self.play_counts = defaultdict(int)
         self.track_counts = self._get_track_counts()
         
@@ -151,7 +167,7 @@ class PlaylistGenerator:
             else:
                 logger.warning(f"No suitable track found for category {category} at position {position + 1}")
         
-        self._save_playlist_to_database()
+        playlist_entries = self._save_playlist_to_database()
         #self.save_play_counts()
         start_save_time = datetime.now()
         self._create_m3u_file()
@@ -159,7 +175,7 @@ class PlaylistGenerator:
         save_time = end_save_time - start_save_time
         print(f"Time to save playlist to M3U file: {save_time}")
         
-        return self.playlist, self._get_statistics()
+        return playlist_entries, self._get_statistics()
     
     def find_stop_point_in_playlist(self, playlist, recently_played_tracks):
         """Find where the sequence of recently played tracks matches in the playlist."""
@@ -550,7 +566,7 @@ class PlaylistGenerator:
             current_repeat_interval
         )
 
-    def _save_playlist_to_database(self) -> None:
+    def _save_playlist_to_database(self) -> List[Playlist]:
         """Save the generated playlist to the database and update the most_recent_playlist field."""
         # Track time it takes to save playlist to database
         start_save_time = datetime.now()
@@ -571,7 +587,8 @@ class PlaylistGenerator:
                 category=track['category'],
                 play_cnt=track['play_cnt'],
                 artist_common_name=track['artist_common_name'],
-                username=self.username
+                username=self.username,
+                engine_id=self.ENGINE_ID
             )
             playlist_entries.append(playlist_entry)
 
@@ -593,6 +610,8 @@ class PlaylistGenerator:
         final_save_time = datetime.now() - end_save_time
         print(f"Time to save playlist to database: {save_time}")
         print(f"Time to commit playlist to database: {final_save_time}")
+        
+        return playlist_entries
 
 
     def _create_m3u_file(self) -> None:

@@ -2,6 +2,9 @@ from flask import jsonify, render_template, request, redirect, url_for, flash
 from . import scheduler_bp  
 from extensions import scheduler, job_status
 from flask_wtf.csrf import CSRFProtect
+import app_context_holder
+from config_loader import load_config, save_config
+from datetime import datetime, timezone
 
 csrf = CSRFProtect()
 
@@ -49,7 +52,7 @@ def delete_job(job_id):
 
     scheduler.remove_job(job_id)
     flash(f"Job {job_id} removed successfully", "success")
-    return redirect(url_for('scheduler_bp.dashboard'))
+    return redirect(url_for('apscheduler.dashboard'))
 
 
 @scheduler_bp.route('/jobs', methods=['POST'])
@@ -72,4 +75,44 @@ def add_job():
 def dashboard():
     jobs = scheduler.get_jobs()
     # Pass both jobs and their statuses to the template
-    return render_template('dashboard.html', jobs=jobs, job_status=job_status)
+    return render_template('dashboard.html', jobs=jobs, job_status=job_status, scheduled_tasks=app_context_holder.app.config.get('scheduled_tasks', {}))
+
+@scheduler_bp.route('/toggle_task/<task_id>', methods=['POST'])
+def toggle_task(task_id):
+    from app import register_job
+    action = request.form.get('action')
+    config = load_config()
+    
+    if task_id in config.get('scheduled_tasks', {}):
+        is_enabled = action == 'enable'
+        config['scheduled_tasks'][task_id]['enabled'] = is_enabled
+        save_config(config)
+        
+        # Update the app's config in memory
+        app_context_holder.app.config['scheduled_tasks'][task_id]['enabled'] = is_enabled
+
+        if is_enabled:
+            register_job(app_context_holder.app, task_id)
+            flash(f'Task {task_id} has been enabled.', 'success')
+        else:
+            if scheduler.get_job(task_id):
+                scheduler.remove_job(task_id)
+            flash(f'Task {task_id} has been disabled.', 'warning')
+            
+    else:
+        flash(f'Task {task_id} not found in configuration.', 'danger')
+        
+    return redirect(url_for('apscheduler.dashboard'))
+
+@scheduler_bp.route('/run_job/<job_id>', methods=['POST'])
+def run_job(job_id):
+    """Manually trigger a job to run immediately."""
+    job = scheduler.get_job(job_id)
+    if job:
+        job.modify(next_run_time=datetime.now(timezone.utc))
+        flash(f'Job "{job_id}" has been triggered to run now.', 'info')
+    else:
+        flash(f'Job "{job_id}" not found.', 'danger')
+    return redirect(url_for('apscheduler.dashboard'))
+
+
