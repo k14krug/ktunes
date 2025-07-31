@@ -799,3 +799,801 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
     except Exception as e: # Catch any other unexpected errors
         current_app.logger.error(f"Unexpected generic exception in fetch_recent_tracks: {str(e)}")
         return None, f"Unexpected error fetching recent tracks: {str(e)}"
+
+def _format_relative_time(played_at):
+    """
+    Format a datetime as relative time (e.g., '2 hours ago')
+    """
+    try:
+        if not played_at:
+            return 'Unknown'
+        
+        from datetime import datetime, timedelta
+        import pytz
+        
+        # Ensure we're working with timezone-aware datetime
+        if played_at.tzinfo is None:
+            pacific_tz = pytz.timezone('America/Los_Angeles')
+            played_at = pacific_tz.localize(played_at)
+        
+        now = datetime.now(played_at.tzinfo)
+        diff = now - played_at
+        
+        if diff.days > 0:
+            if diff.days == 1:
+                return '1 day ago'
+            else:
+                return f'{diff.days} days ago'
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            if hours == 1:
+                return '1 hour ago'
+            else:
+                return f'{hours} hours ago'
+        elif diff.seconds > 60:
+            minutes = diff.seconds // 60
+            if minutes == 1:
+                return '1 minute ago'
+            else:
+                return f'{minutes} minutes ago'
+        else:
+            return 'Just now'
+    except Exception as e:
+        current_app.logger.warning(f"Error formatting relative time: {e}")
+        return 'Unknown'
+
+def _get_time_period_stats(played_tracks):
+    """
+    Calculate statistics for the current time period
+    
+    Args:
+        played_tracks: List of PlayedTrack objects
+    
+    Returns:
+        dict: Statistics including total tracks, time period info
+    """
+    try:
+        if not played_tracks:
+            return {
+                'total_tracks_in_period': 0,
+                'time_period_start': None,
+                'time_period_end': None,
+                'period_description': 'No tracks'
+            }
+        
+        # Get time range
+        earliest_track = min(played_tracks, key=lambda t: t.played_at)
+        latest_track = max(played_tracks, key=lambda t: t.played_at)
+        
+        # Calculate period description
+        from datetime import datetime, timedelta
+        import pytz
+        
+        pacific_tz = pytz.timezone('America/Los_Angeles')
+        now = datetime.now(pacific_tz)
+        
+        # Ensure earliest_track.played_at is timezone-aware
+        earliest_played_at = earliest_track.played_at
+        if earliest_played_at.tzinfo is None:
+            earliest_played_at = pacific_tz.localize(earliest_played_at)
+        
+        time_diff = now - earliest_played_at
+        
+        if time_diff.days > 7:
+            period_description = f"Last {time_diff.days} days"
+        elif time_diff.days > 1:
+            period_description = f"Last {time_diff.days} days"
+        elif time_diff.seconds > 3600:
+            hours = time_diff.seconds // 3600
+            period_description = f"Last {hours} hours"
+        else:
+            period_description = "Recent activity"
+        
+        return {
+            'total_tracks_in_period': len(played_tracks),
+            'time_period_start': earliest_track.played_at,
+            'time_period_end': latest_track.played_at,
+            'period_description': period_description
+        }
+    except Exception as e:
+        current_app.logger.warning(f"Error calculating time period stats: {e}")
+        return {
+            'total_tracks_in_period': len(played_tracks) if played_tracks else 0,
+            'time_period_start': None,
+            'time_period_end': None,
+            'period_description': 'Unknown period'
+        }
+
+def _format_track_data(track, from_krug_playlist=False, track_position=None, position_confidence='unknown', position_method='', position_info=None):
+    """
+    Helper function to format track data consistently with enhanced formatting
+    """
+    try:
+        # Get play count from the Track model if available
+        play_count = None
+        db_track = None
+        try:
+            db_track = Track.query.filter_by(song=track.song, artist=track.artist).first()
+            if db_track:
+                play_count = db_track.play_cnt
+        except Exception as db_error:
+            current_app.logger.warning(f"Error fetching play count for track {track.id}: {db_error}")
+        
+        # Format track position display
+        position_display = None
+        if from_krug_playlist and position_info:
+            if position_info.get('position'):
+                position_display = f"Track #{position_info['position']}"
+            else:
+                position_display = "Position unknown"
+        
+        # Enhanced timestamp formatting
+        played_at_formatted = 'Unknown'
+        played_at_relative = 'Unknown'
+        if track.played_at:
+            try:
+                played_at_formatted = track.played_at.strftime('%b %d, %Y at %I:%M %p')
+                played_at_relative = _format_relative_time(track.played_at)
+            except Exception as time_error:
+                current_app.logger.warning(f"Error formatting timestamp for track {track.id}: {time_error}")
+                played_at_formatted = track.played_at.strftime('%Y-%m-%d %H:%M:%S')
+        
+        return {
+            'id': track.id,
+            'artist': track.artist or 'Unknown Artist',
+            'song': track.song or 'Unknown Song',
+            'played_at': track.played_at,
+            'played_at_formatted': played_at_formatted,
+            'played_at_relative': played_at_relative,
+            'category': track.category or 'Unknown',
+            'playlist_name': track.playlist_name,
+            'album': getattr(track, 'album', None),
+            'spotify_id': getattr(track, 'spotify_id', None),
+            'play_count': play_count,
+            'from_krug_playlist': from_krug_playlist,
+            'track_position': track_position,
+            'position_confidence': position_confidence,
+            'position_method': position_method,
+            'position_info': position_info,
+            'position_display': position_display
+        }
+    except Exception as e:
+        current_app.logger.warning(f"Error formatting track data for track {getattr(track, 'id', 'unknown')}: {e}")
+        # Return minimal safe data
+        return {
+            'id': getattr(track, 'id', 0),
+            'artist': 'Unknown Artist',
+            'song': 'Unknown Song',
+            'played_at': None,
+            'played_at_formatted': 'Unknown',
+            'played_at_relative': 'Unknown',
+            'category': 'Unknown',
+            'playlist_name': None,
+            'album': None,
+            'spotify_id': None,
+            'play_count': None,
+            'from_krug_playlist': False,
+            'track_position': None,
+            'position_confidence': 'unknown',
+            'position_method': 'Error formatting track data',
+            'position_info': None,
+            'position_display': None
+        }
+
+def get_listening_history_with_playlist_context(limit=50, offset=0):
+    """
+    Retrieve recent listening history from PlayedTrack with playlist correlation
+    Optimized with caching and improved database queries
+    
+    Args:
+        limit (int): Maximum number of records to return
+        offset (int): Number of records to skip for pagination
+    
+    Returns:
+        tuple: (listening_data, total_count, error_message)
+        - listening_data: List of enriched PlayedTrack records with playlist context
+        - total_count: Total number of available PlayedTrack records
+        - error_message: None if successful, error message string if there were issues
+    """
+    from services.cache_service import (
+        get_cached_playlist_data, cache_playlist_data,
+        get_cached_playlist_lookup, cache_playlist_lookup
+    )
+    
+    error_message = None
+    start_time = time.time()
+    
+    try:
+        # Optimized total count query with index hint
+        try:
+            total_count = db.session.query(func.count(PlayedTrack.id))\
+                .filter(PlayedTrack.source == 'spotify')\
+                .scalar()
+        except Exception as count_error:
+            current_app.logger.error(f"Error getting total count: {count_error}")
+            return [], 0, "Error retrieving listening history count. Please try again."
+        
+        # Optimized played tracks query using index on (source, played_at)
+        try:
+            played_tracks = db.session.query(PlayedTrack)\
+                .filter(PlayedTrack.source == 'spotify')\
+                .order_by(PlayedTrack.played_at.desc())\
+                .limit(limit)\
+                .offset(offset)\
+                .all()
+        except Exception as query_error:
+            current_app.logger.error(f"Error querying played tracks: {query_error}")
+            return [], total_count, "Error retrieving listening history. Please try again."
+        
+        if not played_tracks:
+            return [], total_count, None
+        
+        # Optimized playlist date query with index on (playlist_name, playlist_date)
+        try:
+            latest_playlist_date = db.session.query(func.max(Playlist.playlist_date))\
+                .filter(Playlist.playlist_name == 'KRUG FM 96.2')\
+                .scalar()
+        except Exception as playlist_date_error:
+            current_app.logger.error(f"Error querying playlist date: {playlist_date_error}")
+            # Graceful degradation - return tracks without playlist context
+            error_message = "Unable to load playlist data. Showing listening history without playlist context."
+            listening_data = []
+            for track in played_tracks:
+                listening_data.append(_format_track_data(
+                    track, 
+                    from_krug_playlist=False,
+                    position_method='Playlist data unavailable due to database error'
+                ))
+            return listening_data, total_count, error_message
+        
+        if not latest_playlist_date:
+            # No KRUG FM 96.2 playlist found, return tracks without playlist context
+            current_app.logger.info("No KRUG FM 96.2 playlist found in database")
+            error_message = "No KRUG FM 96.2 playlist found. Showing listening history without playlist context."
+            listening_data = []
+            for track in played_tracks:
+                listening_data.append(_format_track_data(
+                    track, 
+                    from_krug_playlist=False,
+                    position_method='No KRUG FM 96.2 playlist found'
+                ))
+            return listening_data, total_count, error_message
+        
+        # Try to get playlist data from cache first
+        playlist_data = get_cached_playlist_data('KRUG FM 96.2', latest_playlist_date)
+        
+        if playlist_data is None:
+            # Cache miss - query database with optimized query using composite index
+            try:
+                playlist_data = db.session.query(Playlist)\
+                    .filter(
+                        Playlist.playlist_name == 'KRUG FM 96.2',
+                        Playlist.playlist_date == latest_playlist_date
+                    )\
+                    .order_by(Playlist.track_position)\
+                    .all()
+                
+                # Cache the result for 10 minutes
+                cache_playlist_data('KRUG FM 96.2', latest_playlist_date, playlist_data, ttl=600)
+                
+            except Exception as playlist_query_error:
+                current_app.logger.error(f"Error querying playlist data: {playlist_query_error}")
+                # Graceful degradation - return tracks without playlist context
+                error_message = "Unable to load playlist tracks. Showing listening history without playlist context."
+                listening_data = []
+                for track in played_tracks:
+                    listening_data.append(_format_track_data(
+                        track, 
+                        from_krug_playlist=False,
+                        position_method='Playlist tracks unavailable due to database error'
+                    ))
+                return listening_data, total_count, error_message
+        
+        if not playlist_data:
+            # Playlist exists but has no tracks
+            current_app.logger.warning(f"KRUG FM 96.2 playlist found but contains no tracks (date: {latest_playlist_date})")
+            error_message = "KRUG FM 96.2 playlist found but appears to be empty. Showing listening history without playlist context."
+            listening_data = []
+            for track in played_tracks:
+                listening_data.append(_format_track_data(
+                    track, 
+                    from_krug_playlist=False,
+                    position_method='KRUG FM 96.2 playlist is empty'
+                ))
+            return listening_data, total_count, error_message
+        
+        # Try to get playlist lookup from cache
+        playlist_lookup = get_cached_playlist_lookup('KRUG FM 96.2', latest_playlist_date)
+        
+        if playlist_lookup is None:
+            # Cache miss - create lookup dictionary with error handling
+            try:
+                playlist_lookup = {}
+                for playlist_track in playlist_data:
+                    try:
+                        key = (normalize_text(playlist_track.artist), normalize_text(playlist_track.song))
+                        if key not in playlist_lookup:
+                            playlist_lookup[key] = []
+                        playlist_lookup[key].append({
+                            'position': playlist_track.track_position,
+                            'artist': playlist_track.artist,
+                            'song': playlist_track.song
+                        })
+                    except Exception as normalize_error:
+                        current_app.logger.warning(f"Error normalizing playlist track {playlist_track.id}: {normalize_error}")
+                        continue  # Skip this track but continue processing others
+                
+                # Cache the lookup dictionary for 10 minutes
+                cache_playlist_lookup('KRUG FM 96.2', latest_playlist_date, playlist_lookup, ttl=600)
+                
+            except Exception as lookup_error:
+                current_app.logger.error(f"Error creating playlist lookup: {lookup_error}")
+                # Graceful degradation - return tracks without playlist context
+                error_message = "Error processing playlist data. Showing listening history without playlist context."
+                listening_data = []
+                for track in played_tracks:
+                    listening_data.append(_format_track_data(
+                        track, 
+                        from_krug_playlist=False,
+                        position_method='Playlist processing error'
+                    ))
+                return listening_data, total_count, error_message
+        
+        # Enrich played tracks with playlist context
+        listening_data = []
+        correlation_errors = 0
+        
+        for i, track in enumerate(played_tracks):
+            try:
+                track_key = (normalize_text(track.artist), normalize_text(track.song))
+                
+                if track_key in playlist_lookup:
+                    # Track is from KRUG FM 96.2 playlist
+                    playlist_matches = playlist_lookup[track_key]
+                    
+                    if len(playlist_matches) == 1:
+                        # Single match - easy case
+                        position_info = {
+                            'position': playlist_matches[0]['position'],
+                            'confidence': 'high',
+                            'method': 'Single match in playlist'
+                        }
+                    else:
+                        # Multiple matches - need to determine position from context
+                        try:
+                            surrounding_tracks = _get_surrounding_tracks(played_tracks, i, window_size=5)
+                            position_info = determine_track_position_from_context(
+                                track.artist, track.song, track.played_at,
+                                surrounding_tracks, playlist_data
+                            )
+                        except Exception as context_error:
+                            current_app.logger.warning(f"Error determining position from context for track {track.id}: {context_error}")
+                            # Fallback to first match with low confidence
+                            position_info = {
+                                'position': playlist_matches[0]['position'],
+                                'confidence': 'low',
+                                'method': 'Context analysis failed, using first match'
+                            }
+                            correlation_errors += 1
+                    
+                    listening_data.append(_format_track_data(
+                        track,
+                        from_krug_playlist=True,
+                        track_position=position_info['position'],
+                        position_confidence=position_info['confidence'],
+                        position_method=position_info['method'],
+                        position_info={
+                            'position': position_info['position'],
+                            'confidence': position_info['confidence'],
+                            'method': position_info['method']
+                        }
+                    ))
+                else:
+                    # Track is not from KRUG FM 96.2 playlist
+                    listening_data.append(_format_track_data(
+                        track,
+                        from_krug_playlist=False,
+                        position_method='Not in KRUG FM 96.2 playlist'
+                    ))
+                    
+            except Exception as track_error:
+                current_app.logger.warning(f"Error processing track {track.id}: {track_error}")
+                # Add track with minimal data to avoid losing it completely
+                listening_data.append(_format_track_data(
+                    track,
+                    from_krug_playlist=False,
+                    position_method='Track processing error'
+                ))
+                correlation_errors += 1
+        
+        # Set warning message if there were correlation errors
+        if correlation_errors > 0:
+            if not error_message:  # Don't override more serious error messages
+                error_message = f"Some tracks ({correlation_errors}) had issues with playlist correlation. Position information may be incomplete."
+        
+        # Add time period statistics to the first track for template access
+        if listening_data:
+            time_stats = _get_time_period_stats(played_tracks)
+            listening_data[0]['time_period_stats'] = time_stats
+        
+        # Log performance metrics
+        end_time = time.time()
+        query_time = end_time - start_time
+        current_app.logger.info(f"Listening history query completed in {query_time:.3f}s for {len(listening_data)} tracks")
+        
+        # Warn if query is taking too long
+        if query_time > 2.0:
+            current_app.logger.warning(f"Slow query detected: listening history took {query_time:.3f}s (target: <2s)")
+            if not error_message:
+                error_message = f"Query completed but took longer than expected ({query_time:.1f}s). Consider reducing the number of results per page."
+        
+        return listening_data, total_count, error_message
+        
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in get_listening_history_with_playlist_context: {e}")
+        return [], 0, f"An unexpected error occurred while loading listening history: {str(e)}"
+
+
+def determine_track_position_from_context(artist, song, played_at, surrounding_tracks, playlist_data):
+    """
+    Determine track position for repeated songs using context analysis
+    
+    Args:
+        artist (str): Track artist from PlayedTrack
+        song (str): Track title from PlayedTrack  
+        played_at (datetime): When the track was played from PlayedTrack
+        surrounding_tracks: List of PlayedTrack objects played around the same time
+        playlist_data: Playlist data for the most recent KRUG FM 96.2 playlist
+    
+    Returns:
+        dict: Position information with confidence level
+        - position: int or None
+        - confidence: 'high', 'medium', 'low', or 'unknown'
+        - method: description of how position was determined
+    """
+    try:
+        # Create playlist lookup by position
+        playlist_by_position = {}
+        for playlist_track in playlist_data:
+            playlist_by_position[playlist_track.track_position] = {
+                'artist': playlist_track.artist,
+                'song': playlist_track.song
+            }
+        
+        # Find all possible positions for this track in the playlist
+        target_key = (normalize_text(artist), normalize_text(song))
+        possible_positions = []
+        
+        for playlist_track in playlist_data:
+            playlist_key = (normalize_text(playlist_track.artist), normalize_text(playlist_track.song))
+            if playlist_key == target_key:
+                possible_positions.append(playlist_track.track_position)
+        
+        if not possible_positions:
+            return {
+                'position': None,
+                'confidence': 'unknown',
+                'method': 'Track not found in playlist'
+            }
+        
+        if len(possible_positions) == 1:
+            return {
+                'position': possible_positions[0],
+                'confidence': 'high',
+                'method': 'Single occurrence in playlist'
+            }
+        
+        # Multiple positions - analyze context
+        best_position = None
+        best_score = 0
+        best_method = 'Context analysis failed'
+        
+        for position in possible_positions:
+            score, method = _analyze_position_context(
+                position, surrounding_tracks, playlist_by_position, played_at
+            )
+            
+            if score > best_score:
+                best_score = score
+                best_position = position
+                best_method = method
+        
+        # Determine confidence based on score
+        if best_score >= 3:
+            confidence = 'high'
+        elif best_score >= 2:
+            confidence = 'medium'
+        elif best_score >= 1:
+            confidence = 'low'
+        else:
+            confidence = 'unknown'
+            best_position = possible_positions[0]  # Default to first occurrence
+            best_method = 'No context match - using first occurrence'
+        
+        return {
+            'position': best_position,
+            'confidence': confidence,
+            'method': best_method
+        }
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in determine_track_position_from_context: {e}")
+        return {
+            'position': None,
+            'confidence': 'unknown',
+            'method': f'Error during analysis: {str(e)}'
+        }
+
+
+def _get_surrounding_tracks(played_tracks, current_index, window_size=5):
+    """
+    Get tracks played before and after the current track within a time window
+    
+    Args:
+        played_tracks: List of PlayedTrack objects
+        current_index: Index of the current track
+        window_size: Number of tracks to include before and after
+    
+    Returns:
+        dict: Dictionary with 'before' and 'after' track lists
+    """
+    try:
+        # Validate inputs
+        if not played_tracks or current_index < 0 or current_index >= len(played_tracks):
+            return {'before': [], 'after': []}
+        
+        if window_size < 0:
+            window_size = 5  # Default fallback
+        
+        start_index = max(0, current_index - window_size)
+        end_index = min(len(played_tracks), current_index + window_size + 1)
+        
+        before_tracks = played_tracks[start_index:current_index]
+        after_tracks = played_tracks[current_index + 1:end_index]
+        
+        return {
+            'before': before_tracks,
+            'after': after_tracks
+        }
+    except Exception as e:
+        current_app.logger.warning(f"Error getting surrounding tracks: {e}")
+        return {'before': [], 'after': []}
+
+
+def _analyze_position_context(position, surrounding_tracks, playlist_by_position, played_at):
+    """
+    Analyze the context around a potential position to determine likelihood
+    
+    Args:
+        position: The playlist position to analyze
+        surrounding_tracks: Dictionary with 'before' and 'after' track lists
+        playlist_by_position: Dictionary mapping positions to track info
+        played_at: When the track was played
+    
+    Returns:
+        tuple: (score, method_description)
+    """
+    try:
+        score = 0
+        method_parts = []
+        
+        # Validate inputs
+        if not isinstance(surrounding_tracks, dict) or not playlist_by_position or not played_at:
+            return 0, "Invalid input data for context analysis"
+        
+        # Check tracks played before
+        before_tracks = surrounding_tracks.get('before', [])
+        for i, before_track in enumerate(reversed(before_tracks)):
+            try:
+                expected_position = position - (i + 1)
+                if expected_position in playlist_by_position:
+                    expected_track = playlist_by_position[expected_position]
+                    before_key = (normalize_text(before_track.artist), normalize_text(before_track.song))
+                    expected_key = (normalize_text(expected_track['artist']), normalize_text(expected_track['song']))
+                    
+                    if before_key == expected_key:
+                        score += 1
+                        method_parts.append(f"Match at position {expected_position}")
+                        
+                        # Check time proximity (tracks should be played close together)
+                        if hasattr(before_track, 'played_at') and before_track.played_at:
+                            time_diff = abs((played_at - before_track.played_at).total_seconds())
+                            if time_diff < 300:  # Within 5 minutes
+                                score += 0.5
+                                method_parts.append("Close time proximity")
+            except Exception as before_error:
+                current_app.logger.warning(f"Error analyzing before track {i}: {before_error}")
+                continue  # Skip this track but continue with others
+        
+        # Check tracks played after
+        after_tracks = surrounding_tracks.get('after', [])
+        for i, after_track in enumerate(after_tracks):
+            try:
+                expected_position = position + (i + 1)
+                if expected_position in playlist_by_position:
+                    expected_track = playlist_by_position[expected_position]
+                    after_key = (normalize_text(after_track.artist), normalize_text(after_track.song))
+                    expected_key = (normalize_text(expected_track['artist']), normalize_text(expected_track['song']))
+                    
+                    if after_key == expected_key:
+                        score += 1
+                        method_parts.append(f"Match at position {expected_position}")
+                        
+                        # Check time proximity
+                        if hasattr(after_track, 'played_at') and after_track.played_at:
+                            time_diff = abs((after_track.played_at - played_at).total_seconds())
+                            if time_diff < 300:  # Within 5 minutes
+                                score += 0.5
+                                method_parts.append("Close time proximity")
+            except Exception as after_error:
+                current_app.logger.warning(f"Error analyzing after track {i}: {after_error}")
+                continue  # Skip this track but continue with others
+        
+        # Look for sequence patterns (consecutive tracks from playlist)
+        try:
+            sequence_score = _check_sequence_patterns(
+                position, surrounding_tracks, playlist_by_position
+            )
+            score += sequence_score
+            if sequence_score > 0:
+                method_parts.append(f"Sequence pattern (+{sequence_score})")
+        except Exception as sequence_error:
+            current_app.logger.warning(f"Error checking sequence patterns: {sequence_error}")
+            # Continue without sequence analysis
+        
+        method = '; '.join(method_parts) if method_parts else 'No context matches'
+        return score, method
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in _analyze_position_context: {e}")
+        return 0, f"Context analysis error: {str(e)}"
+
+
+def _check_sequence_patterns(position, surrounding_tracks, playlist_by_position):
+    """
+    Check for consecutive playlist sequences in the surrounding tracks
+    
+    Args:
+        position: The playlist position to analyze
+        surrounding_tracks: Dictionary with 'before' and 'after' track lists
+        playlist_by_position: Dictionary mapping positions to track info
+    
+    Returns:
+        float: Additional score for sequence patterns
+    """
+    try:
+        sequence_score = 0
+        
+        # Validate inputs
+        if not isinstance(surrounding_tracks, dict) or not playlist_by_position:
+            return 0
+        
+        # Check for ascending sequence (tracks played in playlist order)
+        before_tracks = surrounding_tracks.get('before', [])
+        after_tracks = surrounding_tracks.get('after', [])
+        
+        # Look for consecutive matches before the current position
+        consecutive_before = 0
+        for i, before_track in enumerate(reversed(before_tracks)):
+            try:
+                check_position = position - (i + 1)
+                if check_position in playlist_by_position:
+                    expected_track = playlist_by_position[check_position]
+                    before_key = (normalize_text(before_track.artist), normalize_text(before_track.song))
+                    expected_key = (normalize_text(expected_track['artist']), normalize_text(expected_track['song']))
+                    
+                    if before_key == expected_key:
+                        consecutive_before += 1
+                    else:
+                        break
+            except Exception as before_seq_error:
+                current_app.logger.warning(f"Error checking before sequence at position {i}: {before_seq_error}")
+                break  # Stop sequence checking on error
+        
+        # Look for consecutive matches after the current position
+        consecutive_after = 0
+        for i, after_track in enumerate(after_tracks):
+            try:
+                check_position = position + (i + 1)
+                if check_position in playlist_by_position:
+                    expected_track = playlist_by_position[check_position]
+                    after_key = (normalize_text(after_track.artist), normalize_text(after_track.song))
+                    expected_key = (normalize_text(expected_track['artist']), normalize_text(expected_track['song']))
+                    
+                    if after_key == expected_key:
+                        consecutive_after += 1
+                    else:
+                        break
+            except Exception as after_seq_error:
+                current_app.logger.warning(f"Error checking after sequence at position {i}: {after_seq_error}")
+                break  # Stop sequence checking on error
+        
+        # Award bonus points for consecutive sequences
+        total_consecutive = consecutive_before + consecutive_after
+        if total_consecutive >= 3:
+            sequence_score += 2  # Strong sequence pattern
+        elif total_consecutive >= 2:
+            sequence_score += 1  # Moderate sequence pattern
+        elif total_consecutive >= 1:
+            sequence_score += 0.5  # Weak sequence pattern
+        
+        return sequence_score
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in _check_sequence_patterns: {e}")
+        return 0
+
+def cleanup_listening_history_cache():
+    """
+    Cleanup function to invalidate listening history related caches
+    Should be called when playlist data is updated
+    """
+    from services.cache_service import invalidate_playlist_cache, log_cache_stats
+    
+    try:
+        # Invalidate all KRUG FM 96.2 playlist caches
+        invalidate_playlist_cache('KRUG FM 96.2')
+        
+        # Log cache stats after cleanup
+        log_cache_stats()
+        
+        current_app.logger.info("Listening history cache cleanup completed")
+        
+    except Exception as e:
+        current_app.logger.error(f"Error during cache cleanup: {e}")
+
+def optimize_database_queries():
+    """
+    Function to analyze and suggest database optimizations
+    This can be called periodically to monitor query performance
+    """
+    try:
+        # Check if indexes exist by attempting to use them
+        start_time = time.time()
+        
+        # Test the main queries used in listening history
+        test_count = db.session.query(func.count(PlayedTrack.id))\
+            .filter(PlayedTrack.source == 'spotify')\
+            .scalar()
+        
+        count_time = time.time() - start_time
+        
+        start_time = time.time()
+        test_tracks = db.session.query(PlayedTrack)\
+            .filter(PlayedTrack.source == 'spotify')\
+            .order_by(PlayedTrack.played_at.desc())\
+            .limit(10)\
+            .all()
+        
+        query_time = time.time() - start_time
+        
+        start_time = time.time()
+        test_playlist_date = db.session.query(func.max(Playlist.playlist_date))\
+            .filter(Playlist.playlist_name == 'KRUG FM 96.2')\
+            .scalar()
+        
+        playlist_date_time = time.time() - start_time
+        
+        # Log performance metrics
+        current_app.logger.info(f"Database performance check - Count: {count_time:.3f}s, Query: {query_time:.3f}s, Playlist date: {playlist_date_time:.3f}s")
+        
+        # Warn about slow queries
+        if count_time > 0.5:
+            current_app.logger.warning(f"Slow count query detected: {count_time:.3f}s - consider adding index on played_tracks(source)")
+        
+        if query_time > 0.5:
+            current_app.logger.warning(f"Slow main query detected: {query_time:.3f}s - consider adding index on played_tracks(source, played_at)")
+        
+        if playlist_date_time > 0.5:
+            current_app.logger.warning(f"Slow playlist date query detected: {playlist_date_time:.3f}s - consider adding index on playlists(playlist_name, playlist_date)")
+        
+        return {
+            'count_time': count_time,
+            'query_time': query_time,
+            'playlist_date_time': playlist_date_time,
+            'total_records': test_count
+        }
+        
+    except Exception as e:
+        current_app.logger.error(f"Error during database optimization check: {e}")
+        return None

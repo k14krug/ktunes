@@ -1,14 +1,40 @@
-from flask import redirect, url_for, jsonify, flash, render_template, request
+from flask import redirect, url_for, jsonify, flash, render_template, request, current_app
 from flask_login import login_required
 from extensions import db
 from . import spotify_bp
 from services.task_service import run_export_default_playlist
 from services.spotify_service import (
     spotify_auth, spotify_callback, get_spotify_client, 
-    export_playlist_to_spotify, fetch_and_update_recent_tracks
+    export_playlist_to_spotify, fetch_and_update_recent_tracks,
+    get_listening_history_with_playlist_context
 )
-from models import Track, SpotifyURI
+from models import Track, SpotifyURI, PlayedTrack, Playlist
 from datetime import datetime
+from sqlalchemy import func
+import time
+
+class PaginationInfo:
+    """Pagination helper class to match template expectations"""
+    def __init__(self, page, per_page, total_count, total_pages, has_prev, has_next, prev_num, next_num):
+        self.page = page
+        self.per_page = per_page
+        self.limit = per_page  # Keep both for compatibility
+        self.total_count = total_count
+        self.total_pages = total_pages
+        self.has_prev = has_prev
+        self.has_next = has_next
+        self.prev_num = prev_num
+        self.next_num = next_num
+        self.total = total_count  # Alternative name used in template
+    
+    def iter_pages(self, left_edge=2, left_current=2, right_current=3, right_edge=2):
+        """Generate page numbers for pagination display"""
+        last = self.total_pages
+        for num in range(1, last + 1):
+            if num <= left_edge or \
+               (self.page - left_current - 1 < num < self.page + right_current) or \
+               num > last - right_edge:
+                yield num
 
 #@spotify_bp.route('/auth')
 @spotify_bp.route('/spotify_auth')
@@ -225,3 +251,235 @@ def export_default_playlist_to_spotify():
         flash(f"Failed to export playlist: {message}", "error")
 
     return redirect(url_for('main.playlists'))
+
+@spotify_bp.route('/listening_history')
+@login_required
+def listening_history():
+    """
+    Display recent Spotify listening history with playlist context
+    Optimized with performance monitoring and better error handling
+    
+    Query Parameters:
+    - page: int (default: 1) - Page number for pagination
+    - limit: int (default: 50) - Number of records per page
+    
+    Returns:
+    - Rendered template with listening history data
+    """
+    from services.cache_service import log_cache_stats
+    
+    route_start_time = time.time()
+    
+    try:
+        # Get pagination parameters from query string with validation
+        try:
+            page = request.args.get('page', 1, type=int)
+            limit = request.args.get('limit', 50, type=int)
+        except (ValueError, TypeError) as param_error:
+            flash("Invalid pagination parameters. Using default values.", 'warning')
+            page = 1
+            limit = 50
+        
+        # Validate pagination parameters with performance considerations
+        if page < 1:
+            flash("Invalid page number. Showing first page.", 'warning')
+            page = 1
+        if limit < 1 or limit > 100:  # Reduced max limit for better performance
+            if limit > 100:
+                flash("Requested limit too high. Showing maximum of 100 records per page for optimal performance.", 'warning')
+            limit = min(50, max(1, limit))  # Clamp between 1 and 50
+            
+        # Calculate offset for pagination
+        offset = (page - 1) * limit
+        
+        # Log cache stats periodically for monitoring
+        if page == 1:  # Only log on first page to avoid spam
+            log_cache_stats()
+        
+        # Get listening history data from service with timeout consideration
+        try:
+            service_start_time = time.time()
+            listening_data, total_count, error_message = get_listening_history_with_playlist_context(
+                limit=limit, 
+                offset=offset
+            )
+            service_time = time.time() - service_start_time
+            
+            # Log slow service calls
+            if service_time > 1.5:
+                current_app.logger.warning(f"Slow service call: get_listening_history_with_playlist_context took {service_time:.3f}s")
+                
+        except Exception as service_error:
+            current_app.logger.error(f"Service error in listening_history route: {service_error}")
+            flash("Unable to load listening history due to a service error. Please try again later.", 'error')
+            return redirect(url_for('main.index'))
+        
+        # Handle service-level error messages with improved categorization
+        if error_message:
+            # Determine flash message type based on severity
+            if any(keyword in error_message.lower() for keyword in ["database", "connection", "unexpected error"]):
+                flash(error_message, 'error')
+            elif any(keyword in error_message.lower() for keyword in ["playlist", "not found", "empty"]):
+                flash(error_message, 'info')
+            elif any(keyword in error_message.lower() for keyword in ["slow", "performance", "timeout"]):
+                flash(error_message, 'warning')
+            else:
+                flash(error_message, 'warning')
+        
+        # Handle edge case where service returns no data due to errors
+        if total_count == 0 and not listening_data:
+            if not error_message:  # Only show this if no other error message was set
+                flash("No listening history available. This could be due to no recent Spotify activity or a data synchronization issue.", 'info')
+        
+        # Optimized pagination calculation
+        try:
+            if total_count == 0:
+                total_pages = 1
+            else:
+                total_pages = (total_count + limit - 1) // limit  # Ceiling division
+            
+            has_prev = page > 1
+            has_next = page < total_pages
+            
+            # Prepare pagination data for template
+            pagination = PaginationInfo(
+                page=page,
+                per_page=limit,
+                total_count=total_count,
+                total_pages=total_pages,
+                has_prev=has_prev,
+                has_next=has_next,
+                prev_num=page - 1 if has_prev else None,
+                next_num=page + 1 if has_next else None
+            )
+        except Exception as pagination_error:
+            current_app.logger.error(f"Error calculating pagination: {pagination_error}")
+            # Fallback pagination
+            pagination = PaginationInfo(
+                page=1,
+                per_page=limit,
+                total_count=total_count,
+                total_pages=1,
+                has_prev=False,
+                has_next=False,
+                prev_num=None,
+                next_num=None
+            )
+            flash("Pagination may not work correctly due to a calculation error.", 'warning')
+        
+        # Validate that we have data to show or appropriate empty state
+        if not listening_data and total_count > 0:
+            flash("No data found for the requested page. You may have requested a page that doesn't exist.", 'warning')
+            # Redirect to first page with performance-optimized limit
+            return redirect(url_for('spotify.listening_history', page=1, limit=min(limit, 50)))
+        
+        # Extract time period stats if available
+        time_period_stats = None
+        if listening_data and listening_data[0].get('time_period_stats'):
+            time_period_stats = listening_data[0]['time_period_stats']
+        
+        # Log total route performance
+        route_time = time.time() - route_start_time
+        if route_time > 3.0:
+            current_app.logger.warning(f"Slow route: listening_history took {route_time:.3f}s total")
+        
+        return render_template(
+            'spotify_listening_history.html',
+            listening_history=listening_data,
+            total_tracks=total_count,
+            pagination_info=pagination,
+            time_period_stats=time_period_stats
+        )
+        
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in listening_history route: {e}")
+        flash(f"An unexpected error occurred while loading the listening history page. Please try again later.", 'error')
+        return redirect(url_for('main.index'))
+
+@spotify_bp.route('/performance_stats')
+@login_required
+def performance_stats():
+    """
+    Display performance statistics for listening history feature
+    Useful for monitoring and optimization
+    """
+    from services.cache_service import get_cache, log_cache_stats
+    from services.spotify_service import optimize_database_queries
+    
+    try:
+        # Get cache statistics
+        cache = get_cache()
+        cache_size = cache.size()
+        expired_cleaned = cache.cleanup_expired()
+        
+        # Run database performance check
+        db_stats = optimize_database_queries()
+        
+        # Get some basic metrics
+        total_played_tracks = db.session.query(func.count(PlayedTrack.id))\
+            .filter(PlayedTrack.source == 'spotify')\
+            .scalar()
+        
+        latest_playlist_date = db.session.query(func.max(Playlist.playlist_date))\
+            .filter(Playlist.playlist_name == 'KRUG FM 96.2')\
+            .scalar()
+        
+        playlist_track_count = 0
+        if latest_playlist_date:
+            playlist_track_count = db.session.query(func.count(Playlist.id))\
+                .filter(
+                    Playlist.playlist_name == 'KRUG FM 96.2',
+                    Playlist.playlist_date == latest_playlist_date
+                )\
+                .scalar()
+        
+        stats = {
+            'cache': {
+                'size': cache_size,
+                'expired_cleaned': expired_cleaned
+            },
+            'database': db_stats,
+            'metrics': {
+                'total_played_tracks': total_played_tracks,
+                'latest_playlist_date': latest_playlist_date.strftime('%Y-%m-%d %H:%M:%S') if latest_playlist_date else 'None',
+                'playlist_track_count': playlist_track_count
+            }
+        }
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'recommendations': _get_performance_recommendations(db_stats)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting performance stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+def _get_performance_recommendations(db_stats):
+    """Generate performance recommendations based on database stats"""
+    recommendations = []
+    
+    if not db_stats:
+        recommendations.append("Unable to analyze database performance - check logs for errors")
+        return recommendations
+    
+    if db_stats.get('count_time', 0) > 0.1:
+        recommendations.append("Count queries are slow - consider adding index on played_tracks(source)")
+    
+    if db_stats.get('query_time', 0) > 0.1:
+        recommendations.append("Main queries are slow - consider adding composite index on played_tracks(source, played_at)")
+    
+    if db_stats.get('playlist_date_time', 0) > 0.1:
+        recommendations.append("Playlist date queries are slow - consider adding index on playlists(playlist_name, playlist_date)")
+    
+    if db_stats.get('total_records', 0) > 10000:
+        recommendations.append("Large dataset detected - consider implementing data archiving for old played tracks")
+    
+    if not recommendations:
+        recommendations.append("Database performance looks good - all queries are executing efficiently")
+    
+    return recommendations

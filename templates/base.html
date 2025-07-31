@@ -84,6 +84,16 @@
             color: var(--spotify-white);
             background-color: var(--spotify-light-grey);
         }
+        
+        .navbar-custom .dropdown-item.active {
+            color: var(--spotify-white);
+            background-color: var(--spotify-green);
+        }
+        
+        .navbar-custom .nav-link.active {
+            color: var(--spotify-white);
+            background-color: var(--spotify-light-grey);
+        }
     
         /* Container and Layout */
         .container {
@@ -369,6 +379,9 @@
                                 Spotify Tools
                             </a>
                             <div class="dropdown-menu" aria-labelledby="spotifyToolsDropdown">
+                                <a class="dropdown-item {% if request.endpoint == 'spotify.listening_history' %}active{% endif %}" href="{{ url_for('spotify.listening_history') }}">
+                                    <i class="fas fa-history"></i> Listening History
+                                </a>
                                 <a class="dropdown-item" href="{{ url_for('resolve.view_mismatches') }}">Resolve Mismatches</a>
                                 <a class="dropdown-item" href="{{ url_for('resolve.view_not_found') }}">Resolve Not Found</a>
                                 <a class="dropdown-item" href="{{ url_for('resolve.view_unmatched_tracks') }}">Resolve Unmatched Tracks</a>

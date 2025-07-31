@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="mb-0">
+                    <i class="fab fa-spotify" style="color: var(--spotify-green);"></i>
+                    Spotify Listening History
+                </h1>
+                <div class="text-muted">
+                    <small>
+                        {% if total_tracks %}
+                            Showing {{ listening_history|length }} of {{ total_tracks }} tracks
+                            {% if listening_history and listening_history[0].time_period_stats %}
+                                • {{ listening_history[0].time_period_stats.period_description }}
+                            {% endif %}
+                        {% else %}
+                            No recent activity
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+
+            {% if listening_history %}
+                <!-- Summary Card -->
+                {% if time_period_stats %}
+                <div class="card mb-3">
+                    <div class="card-body py-2">
+                        <div class="row text-center">
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center justify-content-center">
+                                    <i class="fas fa-music text-spotify-green mr-2"></i>
+                                    <div>
+                                        <div class="h5 mb-0">{{ time_period_stats.total_tracks_in_period }}</div>
+                                        <small class="text-muted">Total Tracks</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center justify-content-center">
+                                    <i class="fas fa-clock text-spotify-green mr-2"></i>
+                                    <div>
+                                        <div class="h6 mb-0">{{ time_period_stats.period_description }}</div>
+                                        <small class="text-muted">Time Period</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center justify-content-center">
+                                    <i class="fas fa-radio text-spotify-green mr-2"></i>
+                                    <div>
+                                        <div class="h6 mb-0">
+                                            {{ listening_history | selectattr('from_krug_playlist') | list | length }}
+                                        </div>
+                                        <small class="text-muted">From KRUG FM 96.2</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="card">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col" class="border-0">
+                                            <i class="fas fa-music"></i> Track
+                                        </th>
+                                        <th scope="col" class="border-0">
+                                            <i class="fas fa-user"></i> Artist
+                                        </th>
+                                        <th scope="col" class="border-0">
+                                            <i class="fas fa-compact-disc"></i> Album
+                                        </th>
+                                        <th scope="col" class="border-0">
+                                            <i class="fas fa-clock"></i> Played At
+                                        </th>
+                                        <th scope="col" class="border-0">
+                                            <i class="fas fa-list-ol"></i> Playlist Context
+                                        </th>
+                                        <th scope="col" class="border-0">
+                                            <i class="fas fa-external-link-alt"></i> Spotify
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for track in listening_history %}
+                                    <tr class="{% if track.from_krug_playlist %}table-success-subtle{% endif %}">
+                                        <td class="align-middle">
+                                            <div class="d-flex align-items-center">
+                                                {% if track.from_krug_playlist %}
+                                                    <div class="badge badge-success mr-2" title="From KRUG FM 96.2 Playlist">
+                                                        <i class="fas fa-radio"></i>
+                                                    </div>
+                                                {% endif %}
+                                                <div>
+                                                    <div class="font-weight-medium">{{ track.song }}</div>
+                                                    {% if track.play_count and track.play_count > 1 %}
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-redo"></i> Played {{ track.play_count }} times
+                                                        </small>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="align-middle">
+                                            <span class="text-light">{{ track.artist }}</span>
+                                        </td>
+                                        <td class="align-middle">
+                                            <span class="text-muted">{{ track.album or 'Unknown Album' }}</span>
+                                        </td>
+                                        <td class="align-middle">
+                                            <div>
+                                                <div class="text-light">{{ track.played_at_formatted }}</div>
+                                                <small class="text-muted">{{ track.played_at_relative }}</small>
+                                            </div>
+                                        </td>
+                                        <td class="align-middle">
+                                            {% if track.from_krug_playlist %}
+                                                <div class="d-flex flex-column">
+                                                    <div class="badge badge-primary mb-1">
+                                                        <i class="fas fa-radio"></i> KRUG FM 96.2
+                                                    </div>
+                                                    {% if track.position_display %}
+                                                        <div class="position-info">
+                                                            <span class="badge badge-secondary">
+                                                                <i class="fas fa-list-ol"></i> {{ track.position_display }}
+                                                            </span>
+                                                            {% if track.position_info and track.position_info.confidence %}
+                                                                <div class="confidence-indicator mt-1">
+                                                                    <small class="text-muted">
+                                                                        {% if track.position_info.confidence == 'high' %}
+                                                                            <i class="fas fa-check-circle text-success"></i> High confidence
+                                                                        {% elif track.position_info.confidence == 'medium' %}
+                                                                            <i class="fas fa-exclamation-circle text-warning"></i> Medium confidence
+                                                                        {% elif track.position_info.confidence == 'low' %}
+                                                                            <i class="fas fa-question-circle text-info"></i> Low confidence
+                                                                        {% endif %}
+                                                                    </small>
+                                                                </div>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                            {% else %}
+                                                <span class="text-muted">
+                                                    <i class="fas fa-external-link-alt"></i> Other source
+                                                </span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="align-middle">
+                                            {% if track.spotify_id %}
+                                                <a href="https://open.spotify.com/track/{{ track.spotify_id }}" 
+                                                   target="_blank" 
+                                                   class="btn btn-sm btn-outline-success"
+                                                   title="Open in Spotify">
+                                                    <i class="fab fa-spotify"></i>
+                                                </a>
+                                            {% else %}
+                                                <span class="text-muted">N/A</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pagination Controls -->
+                {% if pagination_info and pagination_info.total_pages > 1 %}
+                <nav aria-label="Listening history pagination" class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        <!-- Previous Page -->
+                        {% if pagination_info.has_prev %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('spotify.listening_history', page=pagination_info.prev_num, limit=pagination_info.per_page) }}">
+                                    <i class="fas fa-chevron-left"></i> Previous
+                                </a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">
+                                    <i class="fas fa-chevron-left"></i> Previous
+                                </span>
+                            </li>
+                        {% endif %}
+
+                        <!-- Page Numbers -->
+                        {% for page_num in pagination_info.iter_pages() %}
+                            {% if page_num %}
+                                {% if page_num != pagination_info.page %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('spotify.listening_history', page=page_num, limit=pagination_info.per_page) }}">
+                                            {{ page_num }}
+                                        </a>
+                                    </li>
+                                {% else %}
+                                    <li class="page-item active">
+                                        <span class="page-link">
+                                            {{ page_num }}
+                                            <span class="sr-only">(current)</span>
+                                        </span>
+                                    </li>
+                                {% endif %}
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+
+                        <!-- Next Page -->
+                        {% if pagination_info.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('spotify.listening_history', page=pagination_info.next_num, limit=pagination_info.per_page) }}">
+                                    Next <i class="fas fa-chevron-right"></i>
+                                </a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">
+                                    Next <i class="fas fa-chevron-right"></i>
+                                </span>
+                            </li>
+                        {% endif %}
+                    </ul>
+
+                    <!-- Pagination Info -->
+                    <div class="text-center mt-3">
+                        <small class="text-muted">
+                            Page {{ pagination_info.page }} of {{ pagination_info.total_pages }} 
+                            ({{ pagination_info.total }} total tracks)
+                        </small>
+                    </div>
+                </nav>
+                {% endif %}
+
+            {% else %}
+                <!-- Empty State -->
+                <div class="card">
+                    <div class="card-body text-center py-5">
+                        <div class="mb-4">
+                            <i class="fab fa-spotify fa-4x text-muted"></i>
+                        </div>
+                        <h3 class="text-muted mb-3">No Recent Listening Activity</h3>
+                        <p class="text-muted mb-4">
+                            We haven't detected any recent Spotify listening activity. 
+                            Make sure you're playing music on Spotify and check back later.
+                        </p>
+                        <div class="row justify-content-center">
+                            <div class="col-md-6">
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle"></i>
+                                    <strong>Note:</strong> Listening history is updated automatically every few minutes. 
+                                    Recent plays may take a moment to appear here.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+/* Custom styles for listening history */
+.table-success-subtle {
+    background-color: rgba(29, 185, 84, 0.05);
+    border-left: 3px solid var(--spotify-green);
+}
+
+.table-success-subtle:hover {
+    background-color: rgba(29, 185, 84, 0.1);
+}
+
+.text-spotify-green {
+    color: var(--spotify-green) !important;
+}
+
+.position-info {
+    font-size: 0.875rem;
+}
+
+.confidence-indicator {
+    font-size: 0.75rem;
+}
+
+.badge {
+    font-size: 0.75rem;
+    padding: 0.375rem 0.5rem;
+}
+
+.badge-success {
+    background-color: var(--spotify-green);
+    color: var(--spotify-black);
+}
+
+.badge-primary {
+    background-color: var(--spotify-green);
+    color: var(--spotify-black);
+}
+
+.badge-secondary {
+    background-color: var(--spotify-light-grey);
+    color: var(--spotify-white);
+}
+
+.font-weight-medium {
+    font-weight: 500;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.25rem 0.375rem;
+    }
+    
+    .position-info {
+        font-size: 0.8rem;
+    }
+    
+    .confidence-indicator {
+        font-size: 0.7rem;
+    }
+}
+
+/* Pagination styling */
+.pagination .page-link {
+    background-color: var(--spotify-medium-grey);
+    border-color: var(--spotify-border);
+    color: var(--spotify-light-text);
+}
+
+.pagination .page-link:hover {
+    background-color: var(--spotify-light-grey);
+    border-color: var(--spotify-green);
+    color: var(--spotify-white);
+}
+
+.pagination .page-item.active .page-link {
+    background-color: var(--spotify-green);
+    border-color: var(--spotify-green);
+    color: var(--spotify-black);
+}
+
+.pagination .page-item.disabled .page-link {
+    background-color: var(--spotify-dark-grey);
+    border-color: var(--spotify-border);
+    color: var(--spotify-light-text);
+}
+</style>
+{% endblock %}
