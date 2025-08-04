@@ -6,6 +6,7 @@
 
     <h2 class="mb-3">Create New Artist Grouping</h2>
     <form id="grouping-form" method="POST" class="mb-5">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="row">
             <div class="col-md-5 mb-3">
                 <label for="common_name" class="form-label">Common Name</label>

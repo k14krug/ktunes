@@ -71,6 +71,7 @@
                             {% if item.has_anomaly and item.valid_spotify_uris %}
                             <!-- Action: Fix Anomaly - Use existing valid URI -->
                             <form method="POST" action="{{ url_for('resolve.fix_not_found_anomaly') }}" style="display: inline-block; margin-bottom: 5px;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
                                 <input type="hidden" name="local_track_id" value="{{ item.local_track_details.id }}">
                                 <input type="hidden" name="valid_spotify_uri" value="{{ item.valid_spotify_uris[0].uri }}">
@@ -87,6 +88,7 @@
 
                             <!-- Action: Confirm 'Not on Spotify' -->
                             <form method="POST" action="{{ url_for('resolve.confirm_track_not_on_spotify') }}" style="display: inline-block; margin-bottom: 5px;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
                                 <input type="hidden" name="local_track_id" value="{{ item.local_track_details.id if item.local_track_details else item['track_id'] }}">
                                 <button type="submit" class="btn btn-warning w-100">Confirm Not on Spotify</button>
@@ -99,6 +101,7 @@
                             
                             <!-- Action: Ignore/Dismiss -->
                             <form method="POST" action="{{ url_for('resolve.ignore_not_found') }}" style="display: inline-block;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
                                 <button type="submit" class="btn btn-danger w-100">Ignore</button>
                             </form>
@@ -109,6 +112,7 @@
                             <div class="modal-dialog">
                                 <div class="modal-content">
                                     <form method="POST" action="{{ url_for('resolve.manual_link_not_found') }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                         <div class="modal-header">
                                             <h5 class="modal-title" id="manualLinkNotFoundModalLabel-{{ loop.index }}">Manually Link Spotify Track</h5>
                                             <button type="button" class="close" data-dismiss="modal" aria-label="Close">

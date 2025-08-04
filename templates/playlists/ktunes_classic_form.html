@@ -24,6 +24,7 @@
     </div>
 
     <form id="generatePlaylistForm" method="POST" action="{{ url_for('main.generate_playlist') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="row mb-3">
             <div class="col-md-4">
                 <div class="form-group">

@@ -31,6 +31,7 @@
                 <td>{{ genre.name }}</td>
                 <td>
                     <form method="POST" action="{{ url_for('genres.delete_genre', genre_id=genre.id) }}" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <button type="submit" class="btn btn-danger btn-sm">Delete</button>
                     </form>
                 </td>

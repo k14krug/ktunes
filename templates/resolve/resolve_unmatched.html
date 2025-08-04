@@ -74,6 +74,7 @@
                             <!-- Ignore/Dismiss -->
                             <form method="POST" action="{{ url_for('resolve.ignore_unmatched_track') }}" 
                                   style="display: inline-block;" class="mb-2">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.unmatched.track_id }}">
                                 <button type="submit" class="btn btn-danger btn-sm" 
                                         onclick="return confirm('Are you sure you want to ignore this unmatched track?');">
@@ -122,6 +123,7 @@
                                 </div>
                                 
                                 <form method="POST" action="{{ url_for('resolve.link_unmatched_to_existing') }}" class="mt-3">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <input type="hidden" name="unmatched_track_id" value="{{ unmatched_track.unmatched.track_id }}">
                                     <input type="hidden" name="existing_track_id" value="{{ match.track.id }}">
                                     <input type="hidden" name="spotify_uri_id_of_unmatched" 
@@ -150,6 +152,7 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="POST" action="{{ url_for('resolve.confirm_unmatched_as_new') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <div class="modal-header">
                         <h5 class="modal-title" id="confirmNewModalLabel-{{ unmatched_track.unmatched.track_id }}">
                             <i class="fas fa-plus mr-2"></i>Confirm New Track: {{ unmatched_track.unmatched.song }}

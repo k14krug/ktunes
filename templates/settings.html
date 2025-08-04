@@ -4,6 +4,7 @@
 <h2>Settings</h2>
 
 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="form-group">
         <label for="itunes_dir">iTunes Directory:</label>
         <input type="text" class="form-control" id="itunes_dir" name="itunes_dir" value="{{ itunes_dir }}">

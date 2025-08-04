@@ -11,6 +11,7 @@
 {% endwith %}
 
 <form method="POST" id="edit-track-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="form-group">
         <label for="song">Song *</label>
         <input type="text" class="form-control" id="song" name="song" value="{{ track.song }}" required>
