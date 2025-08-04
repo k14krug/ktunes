@@ -45,6 +45,25 @@ def generate_default_playlist(playlist_name, username=None, target_platform='loc
         # Check if a playlist with this name already exists
         existing_playlist = Playlist.query.filter_by(playlist_name=playlist_name, username=username).first()
         if existing_playlist:
+            # Create version snapshot before deleting the existing playlist (if versioning is enabled)
+            try:
+                from services.playlist_versioning_config import is_versioning_enabled_for_playlist
+                
+                if is_versioning_enabled_for_playlist(playlist_name):
+                    from services.playlist_versioning_service import PlaylistVersioningService
+                    version_id = PlaylistVersioningService.create_version_from_current_playlist(
+                        playlist_name, username
+                    )
+                    if version_id:
+                        logger.info(f"Created version {version_id} for playlist '{playlist_name}' before regeneration")
+                    else:
+                        logger.warning(f"Failed to create version for playlist '{playlist_name}' before regeneration")
+                else:
+                    logger.debug(f"Versioning disabled for playlist '{playlist_name}', skipping version creation")
+            except Exception as e:
+                logger.error(f"Error creating playlist version for '{playlist_name}': {str(e)}")
+                # Continue with playlist generation even if versioning fails
+            
             # Delete the existing playlist
             Playlist.query.filter_by(playlist_name=playlist_name, username=username).delete()
             db.session.commit()

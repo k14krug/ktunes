@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, flash, current_app
+from flask import render_template, request, redirect, url_for, flash, current_app, jsonify
 from flask_login import login_required
 from . import resolve_bp
 from models import Track, SpotifyURI, PlayedTrack # Will be needed for POST actions
@@ -7,7 +7,7 @@ from services.resolution_service import (
     resolve_link_track_to_spotify_uri, 
     resolve_update_track_status
 )
-from services.spotify_service import normalize_text, get_spotify_client # For similarity matching
+from services.spotify_service import normalize_text, normalize_text_for_matching, get_spotify_client # For similarity matching
 from sqlalchemy import or_
 from thefuzz import fuzz # For similarity scores
 
@@ -105,6 +105,48 @@ def view_mismatches():
         else:
             # Regular mismatch entries (no existing good match)
             for mismatch in group['mismatches']:
+                # Check for ANY existing Spotify URI for this track
+                existing_uri_info = None
+                existing_uri_record = db.session.execute(db.text("""
+                    SELECT uri, status FROM spotify_uris 
+                    WHERE track_id = :track_id 
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """), {'track_id': track_id}).fetchone()
+                
+                if existing_uri_record:
+                    existing_uri = existing_uri_record[0]
+                    existing_status = existing_uri_record[1]
+                    current_app.logger.info(f"Found existing URI for track {track_id}: {existing_uri} (status: {existing_status})")
+                    
+                    # Try to get info about the existing URI
+                    existing_track_info = "Unknown Track"
+                    if sp:
+                        try:
+                            if existing_uri.startswith('spotify:track:'):
+                                existing_track_id = existing_uri.split(':')[-1]
+                                existing_spotify_info = sp.track(existing_track_id)
+                                if existing_spotify_info:
+                                    existing_track_info = f"{existing_spotify_info['name']} by {', '.join([artist['name'] for artist in existing_spotify_info['artists']])}"
+                        except Exception as e:
+                            current_app.logger.warning(f"Could not fetch existing URI info for {existing_uri}: {e}")
+                            existing_track_info = "Could not retrieve track info"
+                    else:
+                        current_app.logger.warning("No Spotify client available for URI validation")
+                        existing_track_info = "Spotify client unavailable"
+                    
+                    # Check if existing URI is different from the found track URI
+                    is_different = existing_uri != mismatch['spotify_track_uri']
+                    
+                    existing_uri_info = {
+                        'uri': existing_uri,
+                        'status': existing_status,
+                        'spotify_track_info': existing_track_info,
+                        'is_different_from_found': is_different
+                    }
+                else:
+                    current_app.logger.info(f"No existing URI found for track {track_id}")
+                
                 mismatches.append({
                     'is_duplicate_group': False,
                     'log_identifier': mismatch['log_identifier'],
@@ -112,7 +154,8 @@ def view_mismatches():
                     'found': mismatch['found'],
                     'spotify url': mismatch['spotify_url'],
                     'spotify_track_uri': mismatch['spotify_track_uri'],
-                    'timestamp': mismatch['timestamp']
+                    'timestamp': mismatch['timestamp'],
+                    'existing_spotify_uri': existing_uri_info
                 })
     
     return render_template('resolve/resolve_mismatches.html', mismatches=mismatches, title="Resolve Mismatches")
@@ -190,16 +233,16 @@ def view_unmatched_tracks():
         if unmatched.spotify_uri_id:
             spotify_uri_obj = db.session.get(SpotifyURI, unmatched.spotify_uri_id)
 
-        normalized_unmatched_song = normalize_text(unmatched.song) if unmatched.song else ""
-        normalized_unmatched_artist = normalize_text(unmatched.artist) if unmatched.artist else ""
+        normalized_unmatched_song = normalize_text_for_matching(unmatched.song) if unmatched.song else ""
+        normalized_unmatched_artist = normalize_text_for_matching(unmatched.artist) if unmatched.artist else ""
         
         potential_matches = []
         for lib_track in potential_library_tracks:
             if lib_track.id == unmatched.track_id: # Don't compare with itself
                 continue
 
-            normalized_lib_song = normalize_text(lib_track.song) if lib_track.song else ""
-            normalized_lib_artist = normalize_text(lib_track.artist) if lib_track.artist else ""
+            normalized_lib_song = normalize_text_for_matching(lib_track.song) if lib_track.song else ""
+            normalized_lib_artist = normalize_text_for_matching(lib_track.artist) if lib_track.artist else ""
 
             song_similarity = fuzz.token_set_ratio(normalized_unmatched_song, normalized_lib_song)
             artist_similarity = fuzz.token_set_ratio(normalized_unmatched_artist, normalized_lib_artist)
@@ -308,12 +351,109 @@ def _extract_spotify_uri(uri_or_url):
             return None
     return None # Not a recognized format
 
+def _validate_spotify_uri(spotify_uri, local_track=None):
+    """
+    Validate that a Spotify URI points to a real track by checking with Spotify API.
+    If local_track is provided, also validates similarity between Spotify and local track.
+    """
+    try:
+        from services.spotify_service import get_spotify_client
+        sp = get_spotify_client()
+        if not sp:
+            return False, "Spotify client not available"
+        
+        # Extract track ID from URI
+        if not spotify_uri.startswith("spotify:track:"):
+            return False, "Invalid Spotify URI format"
+        
+        track_id = spotify_uri.split(":")[-1]
+        
+        # Try to get track info from Spotify
+        track_info = sp.track(track_id)
+        if not track_info:
+            return False, "Track not found on Spotify"
+            
+        track_name = track_info['name']
+        artist_name = ', '.join([artist['name'] for artist in track_info['artists']])
+        spotify_description = f"{track_name} by {artist_name}"
+        
+        # If local track provided, check similarity
+        if local_track:
+            from services.spotify_service import normalize_text_for_matching
+            local_song = normalize_text_for_matching(local_track.song)
+            local_artist = normalize_text_for_matching(local_track.artist)
+            spotify_song = normalize_text_for_matching(track_name)
+            spotify_artist = normalize_text_for_matching(artist_name)
+            
+            # Calculate similarity scores
+            song_similarity = fuzz.ratio(local_song, spotify_song)
+            artist_similarity = fuzz.ratio(local_artist, spotify_artist)
+            
+            # Set reasonable thresholds for similarity
+            MIN_SONG_SIMILARITY = 60  # Allows for some variation
+            MIN_ARTIST_SIMILARITY = 70  # Artists should match closer
+            
+            if song_similarity < MIN_SONG_SIMILARITY:
+                return False, f"Song title mismatch: '{local_track.song}' vs '{track_name}' (similarity: {song_similarity}%)"
+            
+            if artist_similarity < MIN_ARTIST_SIMILARITY:
+                return False, f"Artist mismatch: '{local_track.artist}' vs '{artist_name}' (similarity: {artist_similarity}%)"
+            
+            # If we get here, it's a good match
+            return True, f"✅ Good match: {spotify_description} (song: {song_similarity}%, artist: {artist_similarity}%)"
+        
+        # No local track to compare, just return Spotify info
+        return True, spotify_description
+            
+    except Exception as e:
+        return False, f"Error validating Spotify URI: {str(e)}"
+
+@resolve_bp.route('/mismatch/validate_manual_link', methods=['POST'])
+@login_required
+def validate_manual_link():
+    """AJAX endpoint to validate manual link without submitting the form."""
+    try:
+        local_track_id = request.form.get('local_track_id')
+        manual_spotify_uri_input = request.form.get('manual_spotify_uri')
+        force_link = request.form.get('force_link') == '1'
+
+        if not all([local_track_id, manual_spotify_uri_input]):
+            return jsonify({'valid': False, 'message': 'Missing required data.'}), 400
+
+        spotify_uri = _extract_spotify_uri(manual_spotify_uri_input)
+        if not spotify_uri:
+            return jsonify({'valid': False, 'message': 'Invalid Spotify URI or URL format provided.'}), 400
+
+        # Get the local track for similarity validation
+        local_track = Track.query.get(int(local_track_id))
+        if not local_track:
+            return jsonify({'valid': False, 'message': 'Local track not found.'}), 400
+
+        # Validate the Spotify URI with Spotify API and similarity check
+        if force_link:
+            # Skip similarity validation, just check if URI exists
+            is_valid, validation_message = _validate_spotify_uri(spotify_uri)
+            if is_valid:
+                validation_message = f"⚠️ FORCED LINK: {validation_message}"
+        else:
+            # Full validation with similarity check
+            is_valid, validation_message = _validate_spotify_uri(spotify_uri, local_track)
+        
+        return jsonify({
+            'valid': is_valid,
+            'message': validation_message
+        })
+        
+    except Exception as e:
+        return jsonify({'valid': False, 'message': f'Validation error: {str(e)}'}), 500
+
 @resolve_bp.route('/mismatch/manual_link', methods=['POST'])
 @login_required
 def manual_link_mismatch():
     log_identifier = request.form.get('log_identifier')
     local_track_id = request.form.get('local_track_id')
     manual_spotify_uri_input = request.form.get('manual_spotify_uri')
+    force_link = request.form.get('force_link') == '1'
 
     if not all([log_identifier, local_track_id, manual_spotify_uri_input]):
         flash('Missing data for manual linking.', 'danger')
@@ -324,6 +464,26 @@ def manual_link_mismatch():
         flash('Invalid Spotify URI or URL format provided.', 'danger')
         return redirect(url_for('resolve.view_mismatches'))
 
+    # Get the local track for similarity validation
+    local_track = Track.query.get(int(local_track_id))
+    if not local_track:
+        flash('Local track not found.', 'danger')
+        return redirect(url_for('resolve.view_mismatches'))
+
+    # Validate the Spotify URI with Spotify API and similarity check
+    if force_link:
+        # Skip similarity validation, just check if URI exists
+        is_valid, validation_message = _validate_spotify_uri(spotify_uri)
+        if is_valid:
+            validation_message = f"⚠️ FORCED LINK: {validation_message}"
+    else:
+        # Full validation with similarity check
+        is_valid, validation_message = _validate_spotify_uri(spotify_uri, local_track)
+    
+    if not is_valid:
+        flash(f'Spotify URI validation failed: {validation_message}', 'danger')
+        return redirect(url_for('resolve.view_mismatches'))
+
     success = resolve_link_track_to_spotify_uri(
         local_track_id=int(local_track_id),
         spotify_uri=spotify_uri,
@@ -331,7 +491,7 @@ def manual_link_mismatch():
     )
 
     if success:
-        flash('Track successfully linked manually and mismatch resolved.', 'success')
+        flash(f'Track successfully linked manually to: {validation_message}. Mismatch resolved.', 'success')
     else:
         flash('Failed to manually link track or resolve mismatch. Check logs.', 'danger')
     

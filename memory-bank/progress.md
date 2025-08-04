@@ -14,7 +14,7 @@ Based on the project's file and directory names, and recent updates, the followi
     -   Editing track information (`templates/edit_track.html`)
 -   **Spotify Integration:**
     -   Connecting to Spotify (`spotify_app.py`, `services/spotify_service.py`)
-    -   Fetching recent Spotify tracks (`templates/recent_spotify_tracks.html`)
+    -   Fetching recent Spotify tracks (via listening history: `templates/spotify_listening_history.html`)
     -   Listing Spotify playlists (`spotify_list_playlists.py`)
     -   **Exporting playlists to Spotify (Updated Logic - Phase A Complete & Phase C Normalization Applied):**
         -   Correctly handles mismatches by NOT creating/updating `SpotifyURI` with `status='matched'` for the local track if the Spotify result is a mismatch (Phase A).

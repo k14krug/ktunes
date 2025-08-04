@@ -34,6 +34,48 @@ def test_context_wrapper():
         task_service_test()
         app.logger.info("Test context job ran successfully.")
 
+
+def playlist_versioning_cleanup_wrapper():
+    """
+    Scheduled task wrapper for playlist versioning cleanup.
+    Provides the Flask app context and calls the cleanup logic.
+    """
+    import app_context_holder  # Import the holder to access the app
+    
+    # Access the app via the holder
+    app = app_context_holder.app
+    with app.app_context():
+        try:
+            from services.playlist_versioning_service import PlaylistVersioningService
+            from services.playlist_versioning_config import get_versioning_config
+            
+            app.logger.info("Running scheduled playlist versioning cleanup...")
+            
+            # Get configuration
+            config = get_versioning_config()
+            retention_days = config.get_retention_days()
+            max_versions = config.get_max_versions()
+            
+            # Run cleanup for all playlists
+            cleanup_results = PlaylistVersioningService.cleanup_all_playlists(
+                retention_days=retention_days,
+                max_versions=max_versions
+            )
+            
+            total_cleaned = sum(cleanup_results.values())
+            
+            if total_cleaned > 0:
+                app.logger.info(f"Playlist versioning cleanup completed: removed {total_cleaned} old versions across {len(cleanup_results)} playlists")
+                for playlist_name, count in cleanup_results.items():
+                    if count > 0:
+                        app.logger.info(f"  - {playlist_name}: {count} versions cleaned")
+            else:
+                app.logger.info("Playlist versioning cleanup completed: no versions needed cleanup")
+                
+        except Exception as e:
+            app.logger.error(f"Error during playlist versioning cleanup: {str(e)}")
+            # Don't raise the exception to prevent scheduler issues
+
 # (If you still want these old functions, you can keep them, but no longer schedule them directly.)
 def export_default_playlist_to_spotify_task():
     """

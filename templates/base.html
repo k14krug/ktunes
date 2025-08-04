@@ -3,12 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>kTunes</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
         <link rel="stylesheet" href="{{ url_for('static', filename='css/spotify-theme.css') }}">
     <!-- Google Fonts for Spotify-like typography -->
     <link href="https://fonts.googleapis.com/css2?family=Circular:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    {% block extra_css %}{% endblock %}
     
     <style>
         /* Spotify-inspired Theme */
@@ -389,11 +392,21 @@
                                 <!-- Add other spotify related tools here if needed -->
                             </div>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <i class="fas fa-cog"></i> Admin
+                            </a>
+                            <div class="dropdown-menu" aria-labelledby="adminDropdown">
+                                <a class="dropdown-item" href="{{ url_for('admin.duplicate_management') }}">
+                                    <i class="fas fa-copy"></i> Duplicate Management
+                                </a>
+                                <a class="dropdown-item" href="{{ url_for('apscheduler.dashboard') }}">
+                                    <i class="fas fa-clock"></i> Scheduler Dashboard
+                                </a>
+                            </div>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('apscheduler.dashboard') }}">Scheduler Dashboard</a>
+                            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
                         </li>
                     {% else %}
                         <li class="nav-item">

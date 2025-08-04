@@ -50,7 +50,7 @@ This process typically occurs when a user wants to take a kTunes-generated playl
 
 ## Process 2: Processing Recently Played Tracks from Spotify
 
-This process updates the local kTunes library based on listening history from Spotify. It's handled by the `fetch_and_update_recent_tracks` function in `services/spotify_service.py`, usually triggered via a route (e.g., one that renders `recent_spotify_tracks.html`).
+This process updates the local kTunes library based on listening history from Spotify. It's handled by the `fetch_and_update_recent_tracks` function in `services/spotify_service.py`, usually triggered via scheduled tasks or the listening history route (which renders `spotify_listening_history.html`).
 
 **Steps for each recently played track from Spotify:**
 

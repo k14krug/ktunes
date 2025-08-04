@@ -1,4 +1,4 @@
-from flask import redirect, url_for, jsonify, flash, render_template, request, current_app
+from flask import redirect, url_for, jsonify, flash, render_template, request, current_app, make_response
 from flask_login import login_required
 from extensions import db
 from . import spotify_bp
@@ -224,17 +224,6 @@ def add_songs_to_tracks():
     flash('Selected songs have been added to the Tracks table.', 'success')
     return redirect(url_for('spotify.songs_to_add'))
 
-@login_required
-def recent_spotify_tracks():
-    print("Fetching recent Spotify tracks")
-    tracks, error = fetch_and_update_recent_tracks(limit=50)
-    
-    if error:
-        flash(error, 'error')
-        return redirect(url_for('main.index'))
-
-    return render_template('recent_spotify_tracks.html', tracks=tracks)
-
 
 @spotify_bp.route('/export_default_playlist_to_spotify')
 @login_required
@@ -251,6 +240,44 @@ def export_default_playlist_to_spotify():
         flash(f"Failed to export playlist: {message}", "error")
 
     return redirect(url_for('main.playlists'))
+
+@spotify_bp.route('/refresh_listening_history')
+@login_required
+def refresh_listening_history():
+    """
+    Manually refresh Spotify listening history by fetching latest tracks from Spotify API.
+    Then redirect back to the listening history page.
+    """
+    try:
+        from datetime import datetime
+        import time
+        refresh_start = datetime.utcnow()
+        current_app.logger.info("Manual refresh of Spotify listening history requested")
+        
+        # Fetch latest tracks from Spotify - this is synchronous and will wait for completion
+        start_time = time.time()
+        tracks, error = fetch_and_update_recent_tracks(limit=50)
+        processing_time = time.time() - start_time
+        
+        current_app.logger.info(f"Refresh completed in {processing_time:.2f} seconds")
+        
+        if error:
+            flash(f"Error fetching latest Spotify tracks: {error}", 'error')
+        elif tracks:
+            flash(f"Successfully fetched {len(tracks)} new tracks from Spotify (took {processing_time:.1f}s)", 'success')
+        else:
+            flash(f"No new tracks found since last update (checked in {processing_time:.1f}s)", 'info')
+            
+    except Exception as e:
+        current_app.logger.error(f"Error during manual listening history refresh: {str(e)}")
+        flash("An error occurred while refreshing listening history. Please try again.", 'error')
+    
+    # Add a small delay to ensure database commits are complete
+    time.sleep(0.5)
+    
+    # Redirect back to listening history page
+    return redirect(url_for('spotify.listening_history'))
+
 
 @spotify_bp.route('/listening_history')
 @login_required
@@ -299,10 +326,22 @@ def listening_history():
         # Get listening history data from service with timeout consideration
         try:
             service_start_time = time.time()
-            listening_data, total_count, error_message = get_listening_history_with_playlist_context(
-                limit=limit, 
-                offset=offset
-            )
+            # Try versioned correlation first, fall back to current method if needed
+            try:
+                from services.spotify_service import get_listening_history_with_versioned_playlist_context
+                current_app.logger.info("Using versioned playlist correlation")
+                listening_data, total_count, error_message = get_listening_history_with_versioned_playlist_context(
+                    limit=limit, 
+                    offset=offset
+                )
+                current_app.logger.info(f"Versioned correlation returned {len(listening_data)} tracks")
+            except ImportError:
+                # Fallback if versioned function is not available
+                current_app.logger.info("Versioned function not available, using current correlation")
+                listening_data, total_count, error_message = get_listening_history_with_playlist_context(
+                    limit=limit, 
+                    offset=offset
+                )
             service_time = time.time() - service_start_time
             
             # Log slow service calls
@@ -383,13 +422,20 @@ def listening_history():
         if route_time > 3.0:
             current_app.logger.warning(f"Slow route: listening_history took {route_time:.3f}s total")
         
-        return render_template(
+        response = make_response(render_template(
             'spotify_listening_history.html',
             listening_history=listening_data,
             total_tracks=total_count,
             pagination_info=pagination,
             time_period_stats=time_period_stats
-        )
+        ))
+        
+        # Add cache-busting headers to ensure fresh data after refresh
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
         
     except Exception as e:
         current_app.logger.error(f"Unexpected error in listening_history route: {e}")

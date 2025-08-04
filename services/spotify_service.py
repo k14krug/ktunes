@@ -82,10 +82,29 @@ def normalize_text_for_matching(text_input):
     return text
 
 
+# Cache for Spotify client to avoid recreating it for every call
+_spotify_client_cache = None
+_spotify_client_cache_time = None
+
+# Cache for last API check to avoid redundant calls
+_last_api_check_cache = None
+_last_api_check_time = None
+
 def get_spotify_client():
     """
-    Get an authenticated Spotify client using SpotifyOAuth.
+    Get an authenticated Spotify client using SpotifyOAuth with caching.
     """
+    global _spotify_client_cache, _spotify_client_cache_time
+    
+    # Cache client for 10 minutes to avoid overhead
+    cache_timeout = 600  # 10 minutes
+    current_time = time.time()
+    
+    if (_spotify_client_cache is not None and 
+        _spotify_client_cache_time is not None and 
+        current_time - _spotify_client_cache_time < cache_timeout):
+        return _spotify_client_cache
+    
     try:
         sp_oauth = SpotifyOAuth(
             client_id=current_app.config['SPOTIPY_CLIENT_ID'],
@@ -93,7 +112,19 @@ def get_spotify_client():
             redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
             scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload",
         )
-        return spotipy.Spotify(auth_manager=sp_oauth)
+        # Add timeout and retry configuration to avoid hanging on slow API calls
+        client = spotipy.Spotify(
+            auth_manager=sp_oauth,
+            requests_timeout=5,  # Reduced from 10 to 5 seconds
+            retries=1,  # Reduced from 3 to 1 for faster failure
+            backoff_factor=0.1  # Faster backoff between retries
+        )
+        
+        # Cache the client
+        _spotify_client_cache = client
+        _spotify_client_cache_time = current_time
+        
+        return client
     except Exception as e:
         current_app.logger.error(f"Error creating Spotify client: {e}")
         return None
@@ -227,7 +258,16 @@ def refresh_spotify_token(scope=None):
         return None  # Return None to indicate failure
 '''
 
-last_recent_played_at = None  # In-memory variable to track the last fetched played_at
+def get_last_recent_played_at():
+    """Get the last processed played_at timestamp from the database."""
+    try:
+        # Get the most recent PlayedTrack from Spotify
+        latest_track = PlayedTrack.query.filter_by(source='spotify').order_by(PlayedTrack.played_at.desc()).first()
+        if latest_track:
+            return latest_track.played_at
+    except Exception as e:
+        current_app.logger.error(f"Error getting last played_at from database: {e}")
+    return None
 
 def fetch_and_update_recent_tracks(limit=50):   
     """
@@ -236,12 +276,31 @@ def fetch_and_update_recent_tracks(limit=50):
     :param limit: The maximum number of recent tracks to fetch.
     :return: A tuple of (tracks, error) where `tracks` contains the updated tracks, and `error` is None if successful.
     """
-    global last_recent_played_at
+    global _last_api_check_cache, _last_api_check_time
+    
+    start_time = time.time()
     current_app.logger.info(f"Starting fetch and update_recent_tracks with limit: {limit}")
+    
+    # For scheduled jobs that run frequently, cache the "no new tracks" result for 2 minutes
+    # This prevents hammering the Spotify API when there's no new activity
+    cache_timeout = 120  # 2 minutes
+    current_time = time.time()
+    
+    if (limit == 50 and _last_api_check_cache is not None and 
+        _last_api_check_time is not None and 
+        current_time - _last_api_check_time < cache_timeout and
+        _last_api_check_cache == "no_new_tracks"):
+        print(f"Using cached result: no new tracks (cached {current_time - _last_api_check_time:.0f}s ago)")
+        return [], None
+    
     try:
         print("Checking the most recent track...")
         # Fetch only the most recent track and compare it to the last time we did this check. If its newer we'll get the last 50, else no need to go further
+        api_start = time.time()
         single_track_list, error = fetch_recent_tracks(limit=1)
+        api_time = time.time() - api_start
+        print(f"Spotify API call took {api_time:.2f} seconds")
+        
         if error:
             print(f"Error returned from fetch_recent_tracks: {error}")  
             return None, error
@@ -255,15 +314,30 @@ def fetch_and_update_recent_tracks(limit=50):
         datetime_format = '%Y-%m-%d %H:%M:%S'
         most_recent_track_time = datetime.strptime(played_at_raw, datetime_format)
 
-        # Compare with our in-memory last_recent_played_at
+        # Get the last processed timestamp from the database instead of global variable
+        db_start = time.time()
+        last_recent_played_at = get_last_recent_played_at()
+        db_time = time.time() - db_start
+        print(f"Database lookup took {db_time:.3f} seconds")
+
+        # Compare with our database's last_recent_played_at
         if last_recent_played_at and most_recent_track_time <= last_recent_played_at:
-            print(f"No new track since last check({last_recent_played_at}). Exiting.")
+            total_time = time.time() - start_time
+            print(f"No new track since last check({last_recent_played_at}). Exiting. Total time: {total_time:.2f} seconds")
+            
+            # Cache this "no new tracks" result for future calls
+            _last_api_check_cache = "no_new_tracks"
+            _last_api_check_time = current_time
+            
             return [], None
         else:
             print(f"New track found since last check: {most_recent_track.get('track_name', 'UNKNOWN')} by {most_recent_track.get('artist', 'UNKNOWN')}, previously at {last_recent_played_at}")    
+            
+            # Clear the cache since we found new tracks
+            _last_api_check_cache = None
+            _last_api_check_time = None
         
-        # Update our last_recent_played_at with the new track time
-        last_recent_played_at = most_recent_track_time        
+        # No need to update a global variable anymore - the database will track this automatically        
         
         #print(f"Starting fetch_and_update_recent_tracks with limit: {limit}")
 
@@ -547,11 +621,11 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
                     spotify_api_url = spotify_track['href']  # API URL for the song
                     spotify_url = spotify_track['external_urls']['spotify']  # Spotify URL for the song
 
-                    # Normalize local and Spotify track/artist names for comparison
-                    local_song_norm = normalize_text(track.song)
-                    local_artist_norm = normalize_text(track.artist)
-                    spotify_song_norm = normalize_text(spotify_song)
-                    spotify_artist_norm = normalize_text(spotify_artist_original)
+                    # Normalize local and Spotify track/artist names for comparison using enhanced matching
+                    local_song_norm = normalize_text_for_matching(track.song)
+                    local_artist_norm = normalize_text_for_matching(track.artist)
+                    spotify_song_norm = normalize_text_for_matching(spotify_song)
+                    spotify_artist_norm = normalize_text_for_matching(spotify_artist_original)
 
                     # Compare the normalized song and artist names
                     is_mismatch = local_song_norm != spotify_song_norm or local_artist_norm != spotify_artist_norm
@@ -749,9 +823,10 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
                 track_id = item['track']['id']
 
                 # Determine if the track is associated with a playlist
+                # OPTIMIZATION: Skip expensive playlist lookups when only fetching 1 track for comparison
                 context = item.get('context')
                 playlist_name = None
-                if context and context.get('type') == 'playlist':
+                if context and context.get('type') == 'playlist' and limit > 1:
                     playlist_uri = context['uri']
                     if ktunes_playlist_uri and playlist_uri == ktunes_playlist_uri:
                         playlist_name = ktunes_playlist_name
@@ -762,6 +837,9 @@ def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
                                 ktunes_playlist_uri = playlist_uri
                         except:
                             playlist_name = "Unknown Playlist"
+                elif context and context.get('type') == 'playlist' and limit == 1:
+                    # For single track fetches (comparison mode), just note that it was from a playlist
+                    playlist_name = "playlist_context_skipped"
 
                 recent_tracks.append({
                     'track_name': track_name,
@@ -979,6 +1057,308 @@ def _format_track_data(track, from_krug_playlist=False, track_position=None, pos
             'position_info': None,
             'position_display': None
         }
+
+def get_listening_history_with_versioned_playlist_context(limit=50, offset=0):
+    """
+    Enhanced version of listening history correlation that uses playlist versioning.
+    Falls back to current playlist correlation if versioning is unavailable.
+    
+    Args:
+        limit (int): Maximum number of records to return
+        offset (int): Number of records to skip for pagination
+    
+    Returns:
+        tuple: (listening_data, total_count, error_message)
+        - listening_data: List of enriched PlayedTrack records with versioned playlist context
+        - total_count: Total number of available PlayedTrack records
+        - error_message: None if successful, error message string if there were issues
+    """
+    from services.playlist_versioning_service import PlaylistVersioningService
+    from services.playlist_versioning_config import get_versioning_config
+    
+    error_message = None
+    start_time = time.time()
+    
+    try:
+        # Get total count of played tracks
+        try:
+            total_count = db.session.query(func.count(PlayedTrack.id))\
+                .filter(PlayedTrack.source == 'spotify')\
+                .scalar()
+        except Exception as count_error:
+            current_app.logger.error(f"Error getting total count: {count_error}")
+            return [], 0, "Error retrieving listening history count. Please try again."
+        
+        # Get played tracks
+        try:
+            played_tracks = db.session.query(PlayedTrack)\
+                .filter(PlayedTrack.source == 'spotify')\
+                .order_by(PlayedTrack.played_at.desc())\
+                .limit(limit)\
+                .offset(offset)\
+                .all()
+        except Exception as query_error:
+            current_app.logger.error(f"Error querying played tracks: {query_error}")
+            return [], total_count, "Error retrieving listening history. Please try again."
+        
+        if not played_tracks:
+            return [], total_count, None
+        
+        # Check if versioning is enabled
+        config = get_versioning_config()
+        use_versioning = config.is_playlist_enabled('KRUG FM 96.2')
+        
+        listening_data = []
+        
+        if use_versioning:
+            # Check if any playlist versions exist
+            from services.playlist_versioning_service import PlaylistVersioningService
+            versioned_playlists = PlaylistVersioningService.get_all_versioned_playlists()
+            
+            if 'KRUG FM 96.2' in versioned_playlists:
+                # Use versioned correlation
+                current_app.logger.info("Using playlist versioning for correlation")
+                for track in played_tracks:
+                    correlation_result = correlate_track_with_versioned_playlist(
+                        track.artist, track.song, track.played_at
+                    )
+                    listening_data.append(_format_versioned_track_data(track, correlation_result))
+            else:
+                # No versions exist yet - use temporal-aware correlation
+                current_app.logger.info("No playlist versions found, using temporal-aware correlation")
+                
+                # Get the current playlist date for comparison
+                try:
+                    latest_playlist_date = db.session.query(func.max(Playlist.playlist_date))\
+                        .filter(Playlist.playlist_name == 'KRUG FM 96.2')\
+                        .scalar()
+                except Exception as e:
+                    current_app.logger.error(f"Error getting playlist date: {e}")
+                    latest_playlist_date = None
+                
+                for track in played_tracks:
+                    # Only correlate with current playlist if track was played AFTER playlist creation
+                    if latest_playlist_date and track.played_at > latest_playlist_date:
+                        # Track was played after current playlist was created - could be from this playlist
+                        correlation_result = correlate_track_with_current_playlist_temporal(
+                            track.artist, track.song, track.played_at, latest_playlist_date
+                        )
+                    else:
+                        # Track was played before current playlist existed - cannot be from current playlist
+                        correlation_result = {
+                            'from_playlist': False,
+                            'version_id': None,
+                            'position': None,
+                            'confidence': 'high',
+                            'method': f'Played before current playlist (track: {track.played_at.strftime("%m/%d %H:%M")}, playlist: {latest_playlist_date.strftime("%m/%d %H:%M") if latest_playlist_date else "unknown"})',
+                            'version_date': None
+                        }
+                    
+                    listening_data.append(_format_versioned_track_data(track, correlation_result))
+        else:
+            # Fall back to current playlist correlation
+            current_app.logger.info("Versioning disabled, falling back to current playlist correlation")
+            return get_listening_history_with_playlist_context(limit, offset)
+        
+        correlation_time = time.time() - start_time
+        current_app.logger.info(f"Versioned correlation completed in {correlation_time:.3f}s for {len(listening_data)} tracks")
+        
+        return listening_data, total_count, error_message
+        
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in versioned listening history: {e}")
+        # Fall back to current method
+        current_app.logger.info("Falling back to current playlist correlation due to error")
+        return get_listening_history_with_playlist_context(limit, offset)
+
+
+def correlate_track_with_current_playlist_temporal(artist: str, song: str, played_at: datetime, playlist_date: datetime) -> dict:
+    """
+    Correlate a track with the current playlist, but only if timing makes sense.
+    
+    Args:
+        artist: Track artist
+        song: Track title
+        played_at: When the track was played
+        playlist_date: When the current playlist was created
+        
+    Returns:
+        dict: Correlation result with timing-aware logic
+    """
+    try:
+        # Query current playlist for this track
+        from sqlalchemy import and_
+        
+        playlist_track = db.session.query(Playlist).filter(
+            and_(
+                Playlist.playlist_name == 'KRUG FM 96.2',
+                Playlist.artist == artist,
+                Playlist.song == song,
+                Playlist.playlist_date == playlist_date
+            )
+        ).first()
+        
+        if playlist_track:
+            return {
+                'from_playlist': True,
+                'version_id': f'current-{playlist_date.strftime("%Y%m%d-%H%M")}',
+                'position': playlist_track.track_position,
+                'confidence': 'medium',  # Medium because we can't be 100% sure without versions
+                'method': f'Found in current playlist (created {playlist_date.strftime("%m/%d %H:%M")})',
+                'version_date': playlist_date
+            }
+        else:
+            return {
+                'from_playlist': False,
+                'version_id': None,
+                'position': None,
+                'confidence': 'high',
+                'method': 'Not found in current playlist',
+                'version_date': None
+            }
+            
+    except Exception as e:
+        current_app.logger.error(f"Error in temporal correlation for '{artist} - {song}': {str(e)}")
+        return {
+            'from_playlist': False,
+            'version_id': None,
+            'position': None,
+            'confidence': 'unknown',
+            'method': f'Correlation error: {str(e)}',
+            'version_date': None
+        }
+
+
+def correlate_track_with_versioned_playlist(artist: str, song: str, played_at: datetime) -> dict:
+    """
+    Correlate a played track with the appropriate playlist version.
+    
+    Args:
+        artist: Track artist
+        song: Track title
+        played_at: When the track was played
+        
+    Returns:
+        dict: Correlation result with version info, position, confidence level
+    """
+    from services.playlist_versioning_service import PlaylistVersioningService
+    
+    try:
+        # Find the playlist version that was active when the track was played
+        active_version = PlaylistVersioningService.get_active_version_at_time(
+            'KRUG FM 96.2', played_at, username='kkrug'
+        )
+        
+        if not active_version:
+            return {
+                'from_playlist': False,
+                'version_id': None,
+                'position': None,
+                'confidence': 'unknown',
+                'method': 'No playlist version found for timestamp',
+                'version_date': None
+            }
+        
+        # Look for the track in this version
+        version_track = PlaylistVersioningService.find_track_in_version(
+            active_version.version_id, artist, song
+        )
+        
+        if version_track:
+            return {
+                'from_playlist': True,
+                'version_id': active_version.version_id,
+                'position': version_track.track_position,
+                'confidence': 'high',
+                'method': f'Found in version {active_version.version_id[:8]}',
+                'version_date': active_version.active_from
+            }
+        else:
+            return {
+                'from_playlist': False,
+                'version_id': active_version.version_id,
+                'position': None,
+                'confidence': 'high',
+                'method': f'Not found in active version {active_version.version_id[:8]}',
+                'version_date': active_version.active_from
+            }
+            
+    except Exception as e:
+        current_app.logger.error(f"Error correlating track '{artist} - {song}' at {played_at}: {str(e)}")
+        return {
+            'from_playlist': False,
+            'version_id': None,
+            'position': None,
+            'confidence': 'unknown',
+            'method': f'Correlation error: {str(e)}',
+            'version_date': None
+        }
+
+
+def _format_versioned_track_data(track: PlayedTrack, correlation_result: dict) -> dict:
+    """
+    Format track data with versioned playlist correlation information.
+    
+    Args:
+        track: PlayedTrack object
+        correlation_result: Result from correlate_track_with_versioned_playlist
+        
+    Returns:
+        Formatted track data dictionary
+    """
+    # Calculate relative time
+    now = datetime.utcnow()
+    time_diff = now - track.played_at
+    
+    if time_diff.days > 0:
+        relative_time = f"{time_diff.days} day{'s' if time_diff.days != 1 else ''} ago"
+    elif time_diff.seconds > 3600:
+        hours = time_diff.seconds // 3600
+        relative_time = f"{hours} hour{'s' if hours != 1 else ''} ago"
+    elif time_diff.seconds > 60:
+        minutes = time_diff.seconds // 60
+        relative_time = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    else:
+        relative_time = "Just now"
+    
+    # Format timestamps
+    played_at_formatted = 'Unknown'
+    if track.played_at:
+        try:
+            played_at_formatted = track.played_at.strftime('%b %d, %Y at %I:%M %p')
+        except Exception as time_error:
+            current_app.logger.warning(f"Error formatting timestamp for track {track.id}: {time_error}")
+            played_at_formatted = track.played_at.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Format position information
+    if correlation_result['from_playlist'] and correlation_result['position']:
+        position_display = f"Track #{correlation_result['position']}"
+        if correlation_result['version_date']:
+            version_date_str = correlation_result['version_date'].strftime('%m/%d %H:%M')
+            position_display += f" (v{version_date_str})"
+    else:
+        position_display = correlation_result['method']
+    
+    return {
+        'id': getattr(track, 'id', 0),
+        'artist': track.artist,
+        'song': track.song,
+        'played_at': track.played_at,
+        'played_at_formatted': played_at_formatted,
+        'played_at_relative': relative_time,
+        'relative_time': relative_time,  # Keep both for compatibility
+        'category': getattr(track, 'category', 'Unknown'),
+        'album': getattr(track, 'album', 'Unknown Album'),
+        'spotify_id': getattr(track, 'spotify_id', None),
+        'from_krug_playlist': correlation_result['from_playlist'],
+        'position': correlation_result['position'],
+        'position_display': position_display,
+        'confidence': correlation_result['confidence'],
+        'version_id': correlation_result['version_id'],
+        'version_date': correlation_result['version_date'],
+        'correlation_method': correlation_result['method']
+    }
+
 
 def get_listening_history_with_playlist_context(limit=50, offset=0):
     """

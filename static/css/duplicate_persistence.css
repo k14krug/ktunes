@@ -1,0 +1,302 @@
+/* Duplicate Persistence UI Styles */
+
+/* Analysis Age Banner Styles */
+#analysisAgeBanner {
+    border-left: 4px solid #007bff;
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+#analysisAgeBanner.alert-success {
+    border-left-color: #28a745;
+    background-color: #d4edda;
+    color: #155724;
+}
+
+#analysisAgeBanner.alert-warning {
+    border-left-color: #ffc107;
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+#analysisAgeBanner.alert-danger {
+    border-left-color: #dc3545;
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+/* Staleness Indicators */
+.staleness-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.staleness-fresh {
+    background-color: #28a745;
+}
+
+.staleness-moderate {
+    background-color: #ffc107;
+}
+
+.staleness-stale {
+    background-color: #dc3545;
+}
+
+.staleness-very-stale {
+    background-color: #6c757d;
+}
+
+/* Analysis History Dropdown */
+#analysisHistoryDropdown {
+    min-width: 300px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.analysis-history-item {
+    padding: 8px 16px;
+    border-bottom: 1px solid #dee2e6;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.analysis-history-item:hover {
+    background-color: #f8f9fa;
+}
+
+.analysis-history-item:last-child {
+    border-bottom: none;
+}
+
+.analysis-history-meta {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.analysis-history-stats {
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+/* Progress Tracking Styles */
+#progressTrackingSection .card {
+    border: 2px solid #007bff;
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.1);
+}
+
+.progress-phase {
+    padding: 12px;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+    transition: all 0.3s ease;
+}
+
+.progress-phase.active {
+    background-color: #e3f2fd;
+    border: 2px solid #2196f3;
+}
+
+.progress-phase.completed {
+    background-color: #e8f5e8;
+    border: 2px solid #4caf50;
+}
+
+.progress-phase.error {
+    background-color: #ffebee;
+    border: 2px solid #f44336;
+}
+
+.progress-phase.cancelled {
+    background-color: #fff8e1;
+    border: 2px solid #ff9800;
+}
+
+.progress-phase-icon {
+    width: 24px;
+    text-align: center;
+}
+
+.progress-phase.active .progress-phase-icon i {
+    color: #2196f3;
+    animation: pulse 1.5s infinite;
+}
+
+.progress-phase.completed .progress-phase-icon i {
+    color: #4caf50;
+}
+
+.progress-phase.error .progress-phase-icon i {
+    color: #f44336;
+}
+
+.progress-phase.cancelled .progress-phase-icon i {
+    color: #ff9800;
+}
+
+.progress-phase-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.progress-phase.active .progress-phase-status {
+    color: #2196f3;
+}
+
+.progress-phase.completed .progress-phase-status {
+    color: #4caf50;
+}
+
+.progress-phase.error .progress-phase-status {
+    color: #f44336;
+}
+
+.progress-phase.cancelled .progress-phase-status {
+    color: #ff9800;
+}
+
+/* Retry Button */
+#retryAnalysisBtn {
+    border-color: #007bff;
+    background-color: #007bff;
+    color: white;
+}
+
+#retryAnalysisBtn:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+/* Progress Bar Animation */
+.progress-bar-animated {
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    0% {
+        background-position: 1rem 0;
+    }
+    100% {
+        background-position: 0 0;
+    }
+}
+
+/* Pulse Animation for Active Phase */
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+/* Library Changes Alert */
+#libraryChangesAlert {
+    padding: 8px 12px;
+    background-color: rgba(255, 193, 7, 0.1);
+    border-left: 3px solid #ffc107;
+    border-radius: 4px;
+}
+
+#refreshForChangesLink {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+#refreshForChangesLink:hover {
+    color: #0056b3;
+    text-decoration: underline;
+}
+
+/* Progress Time Remaining */
+#progressTimeRemaining {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* Progress Percentage Text */
+#progressPercentageText {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #007bff;
+}
+
+/* Progress Current Message */
+#progressCurrentMessage {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-color: rgba(0, 123, 255, 0.2);
+    color: #004085;
+}
+
+/* Cancel and Return Buttons */
+#cancelAnalysisBtn {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+#cancelAnalysisBtn:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
+#returnToPreviousBtn {
+    border-color: #6c757d;
+    color: #6c757d;
+}
+
+#returnToPreviousBtn:hover {
+    background-color: #6c757d;
+    color: white;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    #analysisAgeBanner .d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+    
+    #analysisAgeBanner .ml-3 {
+        margin-left: 0 !important;
+        margin-top: 12px;
+    }
+    
+    .progress-phase {
+        margin-bottom: 12px;
+    }
+    
+    #analysisHistoryDropdown {
+        min-width: 250px;
+    }
+}
+
+/* Dark Theme Support */
+@media (prefers-color-scheme: dark) {
+    #analysisAgeBanner {
+        background-color: #2d3748;
+        color: #e2e8f0;
+    }
+    
+    .progress-phase {
+        background-color: #2d3748;
+        color: #e2e8f0;
+    }
+    
+    .analysis-history-item {
+        border-bottom-color: #4a5568;
+        color: #e2e8f0;
+    }
+    
+    .analysis-history-item:hover {
+        background-color: #4a5568;
+    }
+}

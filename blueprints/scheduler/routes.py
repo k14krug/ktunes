@@ -1,12 +1,9 @@
 from flask import jsonify, render_template, request, redirect, url_for, flash
 from . import scheduler_bp  
 from extensions import scheduler, job_status
-from flask_wtf.csrf import CSRFProtect
 import app_context_holder
 from config_loader import load_config, save_config
 from datetime import datetime, timezone
-
-csrf = CSRFProtect()
 
 @scheduler_bp.route('/jobs', methods=['GET'])
 def list_jobs():
@@ -41,7 +38,6 @@ def get_job(job_id):
 #
 
 @scheduler_bp.route('/jobs/<job_id>', methods=['DELETE', 'POST'])
-@csrf.exempt
 def delete_job(job_id):
     """
     Remove a specific job by ID.

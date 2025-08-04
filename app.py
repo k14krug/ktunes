@@ -5,7 +5,7 @@ import logging
 from flask import Flask, redirect, url_for
 from flask_session import Session
 from datetime import timedelta
-from extensions import db, login_manager, scheduler, migrate, configure_scheduler
+from extensions import db, login_manager, scheduler, migrate, configure_scheduler, csrf
 from config_loader import load_config
 from services.itunes_service import update_database_from_xml_logic
 #from tasks.scheduled_tasks import export_default_playlist_to_spotify_task
@@ -16,6 +16,7 @@ from blueprints.spotify import spotify_bp
 from blueprints.main import main_bp
 from blueprints.resolve import resolve_bp # Added for resolution UI
 from blueprints.playlists import bp as playlists_bp
+from blueprints.admin import admin_bp
 import app_context_holder # Module to hold the global app context for APScheduler tasks
 
 
@@ -93,6 +94,7 @@ def create_app(app_debug=False):
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    csrf.init_app(app)
     # kkrug 1/15/2025 - added the auth blueprint to the login view for fix a login issue
     login_manager.login_view = 'auth.login'
     Session(app)
@@ -125,7 +127,8 @@ def create_app(app_debug=False):
     app.register_blueprint(spotify_bp, url_prefix='/spotify')
     app.register_blueprint(playlists_bp, url_prefix='/playlists')
     app.register_blueprint(resolve_bp, url_prefix='/resolve') # Added for resolution UI
-    print("Template search paths after all 6 blueprints registered:", app.jinja_loader.searchpath)
+    app.register_blueprint(admin_bp, url_prefix='/admin')
+    print("Template search paths after all 7 blueprints registered:", app.jinja_loader.searchpath)
 
     # Register the datetime filter
     app.jinja_env.filters['format_datetime'] = format_datetime
@@ -156,6 +159,15 @@ def register_job(app, task_id):
                 func='tasks.scheduled_tasks:export_playlist_wrapper',
                 trigger='interval',
                 hours=3,
+                replace_existing=True
+            )
+    elif task_id == 'playlist_versioning_cleanup_daily':
+        if app.config.get('scheduled_tasks', {}).get(task_id, {}).get('enabled', False):
+            scheduler.add_job(
+                id=task_id,
+                func='tasks.scheduled_tasks:playlist_versioning_cleanup_wrapper',
+                trigger='interval',
+                hours=24,  # Run daily
                 replace_existing=True
             )
 

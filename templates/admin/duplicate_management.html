@@ -1,0 +1,656 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0"><i class="fas fa-copy"></i> Duplicate Song Management</h2>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-primary" id="scanDuplicatesBtn">
+                            <i class="fas fa-search"></i> Scan for Duplicates
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="refreshBtn">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-success dropdown-toggle" data-toggle="dropdown" id="exportBtn" disabled>
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <div class="dropdown-menu">
+                                <a class="dropdown-item" href="#" onclick="exportManager.exportAnalysis('json')">
+                                    <i class="fas fa-file-code"></i> Export as JSON
+                                </a>
+                                <a class="dropdown-item" href="#" onclick="exportManager.exportAnalysis('csv')">
+                                    <i class="fas fa-file-csv"></i> Export as CSV
+                                </a>
+                                <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="#" onclick="exportManager.showExportHistory()">
+                                    <i class="fas fa-history"></i> Export History
+                                </a>
+                            </div>
+                        </div>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-toggle="dropdown">
+                                <i class="fas fa-cog"></i> Performance
+                            </button>
+                            <div class="dropdown-menu">
+                                <a class="dropdown-item" href="#" onclick="duplicateManager.clearCache()">
+                                    <i class="fas fa-trash"></i> Clear Cache
+                                </a>
+                                <a class="dropdown-item" href="#" onclick="duplicateManager.optimizePerformance()">
+                                    <i class="fas fa-tachometer-alt"></i> Optimize Database
+                                </a>
+                                <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" href="#" onclick="duplicateManager.loadCacheStats()">
+                                    <i class="fas fa-info-circle"></i> Show Stats
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">Identify and manage duplicate songs in your music library. This tool helps you find songs with variations like remasters, radio edits, and other versions.</p>
+                    
+                    <!-- Analysis Age Banner -->
+                    <div id="analysisAgeBanner" class="alert alert-dismissible" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="flex-grow-1">
+                                <i class="fas fa-clock"></i>
+                                <strong id="analysisAgeText">Analysis from X hours ago</strong>
+                                <span class="text-muted ml-2" id="analysisTimestamp">(Created: Date)</span>
+                                <div id="libraryChangesAlert" class="mt-2" style="display: none;">
+                                    <i class="fas fa-exclamation-triangle text-warning"></i>
+                                    <strong>Library Updated:</strong>
+                                    <span id="libraryChangesText">X tracks added, Y tracks modified since this analysis.</span>
+                                    <a href="#" id="refreshForChangesLink" class="ml-2">Refresh to include recent changes</a>
+                                </div>
+                            </div>
+                            <div class="ml-3">
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-primary" id="quickRefreshBtn">
+                                        <i class="fas fa-redo"></i> Quick Refresh
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary dropdown-toggle" data-toggle="dropdown">
+                                        <i class="fas fa-history"></i> History
+                                    </button>
+                                    <div class="dropdown-menu dropdown-menu-right" id="analysisHistoryDropdown">
+                                        <!-- Analysis history will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- iTunes Status -->
+                    <div id="itunesStatus" class="alert alert-info" style="display: none;">
+                        <i class="fas fa-info-circle"></i> <span id="itunesStatusText">Checking iTunes integration...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search and Filter Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-filter"></i> Search & Filter</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="searchInput">Search Duplicates</label>
+                                <input type="text" class="form-control" id="searchInput" placeholder="Search by artist or song name...">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label for="sortBy">Sort By</label>
+                                <select class="form-control" id="sortBy">
+                                    <option value="artist">Artist Name</option>
+                                    <option value="song">Song Name</option>
+                                    <option value="duplicates">Number of Duplicates</option>
+                                    <option value="confidence">Confidence Score</option>
+                                    <option value="play_count">Play Count</option>
+                                    <option value="last_played">Last Played</option>
+                                    <option value="date_added">Date Added</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label for="confidenceFilter">Minimum Confidence</label>
+                                <select class="form-control" id="confidenceFilter">
+                                    <option value="0">All Matches</option>
+                                    <option value="0.8" selected>High Confidence (80%+)</option>
+                                    <option value="0.9">Very High (90%+)</option>
+                                    <option value="0.95">Excellent (95%+)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group">
+                                <label>&nbsp;</label>
+                                <button type="button" class="btn btn-outline-secondary btn-block" id="clearFiltersBtn">
+                                    <i class="fas fa-times"></i> Clear
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Section -->
+    <div class="row mb-4" id="statisticsSection" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Duplicate Analysis</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <h4 class="text-primary mb-1" id="totalGroupsCount">0</h4>
+                                <small class="text-muted">Duplicate Groups</small>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <h4 class="text-warning mb-1" id="totalDuplicatesCount">0</h4>
+                                <small class="text-muted">Total Duplicates</small>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <h4 class="text-success mb-1" id="potentialDeletionsCount">0</h4>
+                                <small class="text-muted">Can Be Deleted</small>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <h4 class="text-info mb-1" id="spaceSavings">0 MB</h4>
+                                <small class="text-muted">Est. Space Savings</small>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <h4 class="text-primary mb-1" id="highConfidenceCount">0</h4>
+                                <small class="text-muted">High Confidence</small>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <h4 class="text-secondary mb-1" id="avgSimilarity">0%</h4>
+                                <small class="text-muted">Avg Similarity</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Actions Section -->
+    <div class="row mb-4" id="bulkActionsSection" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-tasks"></i> Bulk Actions</h5>
+                    <span class="badge badge-secondary" id="selectedCount">0 selected</span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-outline-primary btn-block" id="selectAllBtn">
+                                <i class="fas fa-check-square"></i> Select All
+                            </button>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-outline-secondary btn-block" id="selectNoneBtn">
+                                <i class="fas fa-square"></i> Select None
+                            </button>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-outline-warning btn-block" id="selectHighConfidenceBtn">
+                                <i class="fas fa-star"></i> High Confidence
+                            </button>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group mb-0">
+                                <select class="form-control" id="smartDeletionStrategy">
+                                    <option value="keep_most_played">Keep Most Played</option>
+                                    <option value="keep_itunes_version">Keep iTunes Version</option>
+                                    <option value="keep_shortest_title">Keep Shortest Title</option>
+                                    <option value="keep_canonical">Keep Canonical</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="btn-group btn-block" role="group">
+                                <button type="button" class="btn btn-danger" id="bulkDeleteBtn" disabled>
+                                    <i class="fas fa-trash"></i> Delete Selected
+                                </button>
+                                <button type="button" class="btn btn-success" id="smartDeleteBtn" disabled>
+                                    <i class="fas fa-magic"></i> Smart Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Section -->
+    <div class="row" id="loadingSection" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <div class="spinner-border text-primary mb-3" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <h5>Scanning for duplicates...</h5>
+                    <p class="text-muted">This may take a few moments depending on your library size.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Tracking Section -->
+    <div class="row" id="progressTrackingSection" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-cog fa-spin text-primary"></i>
+                        <span id="progressPhaseTitle">Analyzing Duplicates</span>
+                    </h5>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="cancelAnalysisBtn">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="returnToPreviousBtn" style="display: none;">
+                            <i class="fas fa-arrow-left"></i> Return to Previous Results
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Progress Bar -->
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span id="progressPercentageText">0%</span>
+                            <span id="progressTimeRemaining" class="text-muted">Estimating time...</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" 
+                                 style="width: 0%" 
+                                 id="mainProgressBar">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Phase Indicators -->
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <div class="progress-phase" id="phase-loading">
+                                <div class="d-flex align-items-center">
+                                    <div class="progress-phase-icon">
+                                        <i class="fas fa-database text-muted"></i>
+                                    </div>
+                                    <div class="ml-2">
+                                        <small class="text-muted">Loading Tracks</small>
+                                        <div class="progress-phase-status">Pending</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="progress-phase" id="phase-analyzing">
+                                <div class="d-flex align-items-center">
+                                    <div class="progress-phase-icon">
+                                        <i class="fas fa-search text-muted"></i>
+                                    </div>
+                                    <div class="ml-2">
+                                        <small class="text-muted">Analyzing Similarities</small>
+                                        <div class="progress-phase-status">Pending</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="progress-phase" id="phase-cross-referencing">
+                                <div class="d-flex align-items-center">
+                                    <div class="progress-phase-icon">
+                                        <i class="fas fa-link text-muted"></i>
+                                    </div>
+                                    <div class="ml-2">
+                                        <small class="text-muted">Cross-referencing iTunes</small>
+                                        <div class="progress-phase-status">Pending</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="progress-phase" id="phase-saving">
+                                <div class="d-flex align-items-center">
+                                    <div class="progress-phase-icon">
+                                        <i class="fas fa-save text-muted"></i>
+                                    </div>
+                                    <div class="ml-2">
+                                        <small class="text-muted">Saving Results</small>
+                                        <div class="progress-phase-status">Pending</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Progress Details -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="text-center">
+                                <h4 class="text-primary mb-1" id="tracksProcessedCount">0</h4>
+                                <small class="text-muted">Tracks Processed</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-center">
+                                <h4 class="text-success mb-1" id="groupsFoundCount">0</h4>
+                                <small class="text-muted">Duplicate Groups Found</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Current Phase Message -->
+                    <div class="mt-3">
+                        <div class="alert alert-info mb-0" id="progressCurrentMessage">
+                            <i class="fas fa-info-circle"></i>
+                            <span id="progressMessageText">Initializing analysis...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- No Results Section -->
+    <div class="row" id="noResultsSection" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-check-circle text-success mb-3" style="font-size: 3rem;"></i>
+                    <h5>No Duplicates Found</h5>
+                    <p class="text-muted">Great! Your music library appears to be free of duplicate songs.</p>
+                    <button type="button" class="btn btn-primary" id="rescanBtn">
+                        <i class="fas fa-search"></i> Scan Again
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Duplicate Groups Section -->
+    <div class="row" id="duplicateGroupsSection" style="display: none;">
+        <div class="col-12">
+            <div id="duplicateGroupsContainer">
+                <!-- Duplicate groups will be dynamically loaded here -->
+            </div>
+            
+            <!-- Pagination -->
+            <div class="card mt-3" id="paginationCard" style="display: none;">
+                <div class="card-body">
+                    <nav aria-label="Duplicate groups pagination">
+                        <ul class="pagination justify-content-center mb-0" id="paginationList">
+                            <!-- Pagination will be dynamically generated -->
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1" role="dialog" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmDeleteModalLabel">
+                    <i class="fas fa-exclamation-triangle text-warning"></i> Confirm Deletion
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>Warning:</strong> This action cannot be undone. The selected songs will be permanently removed from your library.
+                </div>
+                <div id="deletePreview">
+                    <!-- Delete preview will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+                    <i class="fas fa-trash"></i> Delete Songs
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress Modal -->
+<div class="modal fade" id="progressModal" tabindex="-1" role="dialog" aria-labelledby="progressModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="progressModalLabel">Processing...</h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+                <p id="progressText">Please wait...</p>
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" style="width: 0%" id="progressBar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Progress Modal -->
+<div class="modal fade" id="exportProgressModal" tabindex="-1" role="dialog" aria-labelledby="exportProgressModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportProgressModalLabel">
+                    <i class="fas fa-download"></i> Exporting Analysis Results
+                </h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-success mb-3" role="status">
+                    <span class="sr-only">Exporting...</span>
+                </div>
+                <p id="exportProgressText">Preparing export data...</p>
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                         role="progressbar" style="width: 0%" id="exportProgressBar"></div>
+                </div>
+                <div id="exportProgressDetails" class="text-muted small">
+                    <div>Format: <span id="exportFormat">JSON</span></div>
+                    <div>Groups: <span id="exportGroups">0</span></div>
+                    <div>Tracks: <span id="exportTracks">0</span></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelExportBtn" disabled>
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export History Modal -->
+<div class="modal fade" id="exportHistoryModal" tabindex="-1" role="dialog" aria-labelledby="exportHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportHistoryModalLabel">
+                    <i class="fas fa-history"></i> Export History
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Export Statistics -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body text-center">
+                                <h4 id="totalExports">0</h4>
+                                <small>Total Exports</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body text-center">
+                                <h4 id="totalSize">0 MB</h4>
+                                <small>Total Size</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white">
+                            <div class="card-body text-center">
+                                <h4 id="totalDownloads">0</h4>
+                                <small>Total Downloads</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body text-center">
+                                <h4 id="jsonExports">0</h4>
+                                <small>JSON Exports</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export List -->
+                <div class="table-responsive">
+                    <table class="table table-striped" id="exportHistoryTable">
+                        <thead>
+                            <tr>
+                                <th>Created</th>
+                                <th>Format</th>
+                                <th>Size</th>
+                                <th>Downloads</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="exportHistoryTableBody">
+                            <!-- Export history will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="exportHistoryLoading" class="text-center py-4" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading export history...</p>
+                </div>
+
+                <!-- Empty state -->
+                <div id="exportHistoryEmpty" class="text-center py-4" style="display: none;">
+                    <i class="fas fa-download fa-3x text-muted mb-3"></i>
+                    <h5>No Exports Yet</h5>
+                    <p class="text-muted">Export your analysis results to see them here.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" id="cleanupExportsBtn">
+                    <i class="fas fa-trash"></i> Cleanup Expired
+                </button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Success Modal -->
+<div class="modal fade" id="exportSuccessModal" tabindex="-1" role="dialog" aria-labelledby="exportSuccessModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="exportSuccessModalLabel">
+                    <i class="fas fa-check-circle"></i> Export Completed
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <i class="fas fa-download fa-3x text-success mb-3"></i>
+                    <h5>Your export is ready!</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Format:</strong> <span id="successExportFormat">JSON</span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>File Size:</strong> <span id="successExportSize">0 MB</span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Groups:</strong> <span id="successExportGroups">0</span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Tracks:</strong> <span id="successExportTracks">0</span>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info mt-3">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Note:</strong> Export files expire after 24 hours for security.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-success" id="downloadExportBtn">
+                    <i class="fas fa-download"></i> Download Now
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/duplicate_persistence.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/duplicate_export.css') }}">
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/duplicate_management.js') }}"></script>
+<script src="{{ url_for('static', filename='js/duplicate_persistence.js') }}"></script>
+<script src="{{ url_for('static', filename='js/duplicate_export.js') }}"></script>
+{% endblock %}

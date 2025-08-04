@@ -9,17 +9,28 @@
                     <i class="fab fa-spotify" style="color: var(--spotify-green);"></i>
                     Spotify Listening History
                 </h1>
-                <div class="text-muted">
-                    <small>
-                        {% if total_tracks %}
-                            Showing {{ listening_history|length }} of {{ total_tracks }} tracks
-                            {% if listening_history and listening_history[0].time_period_stats %}
-                                • {{ listening_history[0].time_period_stats.period_description }}
+                <div class="d-flex align-items-center">
+                    <div class="text-muted mr-3">
+                        <small>
+                            {% if total_tracks %}
+                                Showing {{ listening_history|length }} of {{ total_tracks }} tracks
+                                {% if listening_history and listening_history[0].time_period_stats %}
+                                    • {{ listening_history[0].time_period_stats.period_description }}
+                                {% endif %}
+                            {% else %}
+                                No recent activity
                             {% endif %}
-                        {% else %}
-                            No recent activity
-                        {% endif %}
-                    </small>
+                            {% if listening_history and listening_history[0] %}
+                                <br><i class="fas fa-clock text-muted"></i> Most recent: {{ listening_history[0].relative_time }}
+                            {% endif %}
+                        </small>
+                    </div>
+                    <a href="{{ url_for('spotify.refresh_listening_history') }}" 
+                       class="btn btn-outline-success btn-sm refresh-btn" 
+                       title="Fetch latest tracks from Spotify"
+                       onclick="showRefreshLoading(this)">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </a>
                 </div>
             </div>
 
@@ -126,22 +137,34 @@
                                                 <div class="d-flex flex-column">
                                                     <div class="badge badge-primary mb-1">
                                                         <i class="fas fa-radio"></i> KRUG FM 96.2
+                                                        {% if track.version_date %}
+                                                            <small class="ml-1">({{ track.version_date.strftime('%m/%d %H:%M') }})</small>
+                                                        {% endif %}
                                                     </div>
                                                     {% if track.position_display %}
                                                         <div class="position-info">
                                                             <span class="badge badge-secondary">
                                                                 <i class="fas fa-list-ol"></i> {{ track.position_display }}
                                                             </span>
-                                                            {% if track.position_info and track.position_info.confidence %}
+                                                            {% if track.confidence %}
                                                                 <div class="confidence-indicator mt-1">
                                                                     <small class="text-muted">
-                                                                        {% if track.position_info.confidence == 'high' %}
+                                                                        {% if track.confidence == 'high' %}
                                                                             <i class="fas fa-check-circle text-success"></i> High confidence
-                                                                        {% elif track.position_info.confidence == 'medium' %}
+                                                                        {% elif track.confidence == 'medium' %}
                                                                             <i class="fas fa-exclamation-circle text-warning"></i> Medium confidence
-                                                                        {% elif track.position_info.confidence == 'low' %}
+                                                                        {% elif track.confidence == 'low' %}
                                                                             <i class="fas fa-question-circle text-info"></i> Low confidence
+                                                                        {% elif track.confidence == 'unknown' %}
+                                                                            <i class="fas fa-question-circle text-muted"></i> Unknown
                                                                         {% endif %}
+                                                                    </small>
+                                                                </div>
+                                                            {% endif %}
+                                                            {% if track.correlation_method %}
+                                                                <div class="correlation-method mt-1">
+                                                                    <small class="text-muted" title="{{ track.correlation_method }}">
+                                                                        <i class="fas fa-info-circle"></i> {{ track.correlation_method[:30] }}{% if track.correlation_method|length > 30 %}...{% endif %}
                                                                     </small>
                                                                 </div>
                                                             {% endif %}
@@ -363,4 +386,35 @@
     color: var(--spotify-light-text);
 }
 </style>
+
+<script>
+function showRefreshLoading(button) {
+    // Change button text and disable it
+    const icon = button.querySelector('i');
+    const originalText = button.innerHTML;
+    
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+    button.disabled = true;
+    button.classList.add('disabled');
+    
+    // The page will redirect, but if for some reason it doesn't, restore the button after 60 seconds
+    setTimeout(function() {
+        button.innerHTML = originalText;
+        button.disabled = false;
+        button.classList.remove('disabled');
+    }, 60000);
+}
+
+// Add keyboard shortcut (Ctrl+R or Cmd+R) to refresh
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+        e.preventDefault(); // Prevent browser refresh
+        const refreshBtn = document.querySelector('.refresh-btn');
+        if (refreshBtn) {
+            showRefreshLoading(refreshBtn);
+            window.location.href = refreshBtn.href;
+        }
+    }
+});
+</script>
 {% endblock %}

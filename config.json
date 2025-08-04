@@ -36,5 +36,16 @@
                 "artist_repeat": 200
             }
         ]
+    },
+    "scheduled_tasks": {
+        "export_default_playlist_to_spotify_on_startup": {
+            "enabled": false
+        },
+        "export_default_playlist_to_spotify_hourly": {
+            "enabled": true
+        },
+        "playlist_versioning_cleanup_daily": {
+            "enabled": true
+        }
     }
 }

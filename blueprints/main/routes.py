@@ -16,6 +16,30 @@ from extensions import db
 #from app import app
 
 from . import main_bp
+
+@main_bp.route('/health/versioning')
+def versioning_health_check():
+    """Health check endpoint for playlist versioning system."""
+    try:
+        from services.playlist_versioning_service import PlaylistVersioningService
+        health_data = PlaylistVersioningService.health_check()
+        
+        # Return appropriate HTTP status based on health
+        status_code = 200
+        if health_data['status'] == 'degraded':
+            status_code = 200  # Still functional but with issues
+        elif health_data['status'] == 'unhealthy':
+            status_code = 503  # Service unavailable
+        
+        return jsonify(health_data), status_code
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.utcnow().isoformat(),
+            'error': f'Health check endpoint error: {str(e)}'
+        }), 503
+
 @main_bp.route('/update_database_from_xml')
 @login_required
 def update_database_from_xml():

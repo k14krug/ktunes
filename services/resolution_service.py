@@ -8,31 +8,33 @@ NOT_FOUND_FILE = 'not_in_spotify.json'
 def resolve_link_track_to_spotify_uri(local_track_id, spotify_uri, status='matched'):
     """
     Creates/updates SpotifyURI record in the database.
-    No longer removes entries from JSON log files as we now use database-only workflow.
+    Now properly handles replacing existing URIs with new ones.
     """
     track = Track.query.get(local_track_id)
     if not track:
         return False # Track not found
 
-    # Check if a SpotifyURI already exists for this track and specific URI
-    existing_uri_for_track = SpotifyURI.query.filter_by(track_id=local_track_id, uri=spotify_uri).first()
+    # Check if ANY SpotifyURI already exists for this track (regardless of URI)
+    existing_uri_for_track = SpotifyURI.query.filter_by(track_id=local_track_id).first()
 
     if existing_uri_for_track:
+        # Update the existing record with the new URI and status
+        existing_uri_for_track.uri = spotify_uri
         existing_uri_for_track.status = status
+        print(f"Updated existing SpotifyURI for track {local_track_id}: {spotify_uri} -> {status}")
     else:
-        # If we are linking to a new URI, we might want to ensure other URIs for the same track are handled.
-        # For now, let's assume we are adding/updating one specific link.
-        # Potentially, mark other 'mismatched' or 'unmatched' URIs for this track as 'obsolete' or delete them.
-        # This simplification assumes one primary Spotify link per track for 'matched' or 'manual_match'.
-        
-        # Remove any existing 'unmatched' or 'confirmed_no_spotify' for this track_id before adding a new definitive match.
-        SpotifyURI.query.filter_by(track_id=local_track_id, status='unmatched').delete()
-        SpotifyURI.query.filter_by(track_id=local_track_id, status='confirmed_no_spotify').delete()
-
-        # If a different URI was previously 'matched' or 'manual_match', this new one might supersede it.
-        # For simplicity, we'll add the new one. Complex de-duplication/superseding logic can be added later.
+        # Create new SpotifyURI record
         new_uri = SpotifyURI(track_id=local_track_id, uri=spotify_uri, status=status)
         db.session.add(new_uri)
+        print(f"Created new SpotifyURI for track {local_track_id}: {spotify_uri} -> {status}")
+    
+    # Clean up any duplicate records for this track (keep only one)
+    all_uris_for_track = SpotifyURI.query.filter_by(track_id=local_track_id).all()
+    if len(all_uris_for_track) > 1:
+        # Keep the first one (should be the one we just updated/created)
+        for uri_record in all_uris_for_track[1:]:
+            db.session.delete(uri_record)
+        print(f"Cleaned up {len(all_uris_for_track)-1} duplicate URI records for track {local_track_id}")
     
     try:
         db.session.commit()

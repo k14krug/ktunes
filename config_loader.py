@@ -23,6 +23,9 @@ def load_config(force_defaults=False):
             },
             'export_default_playlist_to_spotify_hourly': {
                 'enabled': True
+            },
+            'playlist_versioning_cleanup_daily': {
+                'enabled': True
             }
         }
     }

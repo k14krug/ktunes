@@ -129,7 +129,7 @@ WHERE playlist_name = 'KRUG FM 96.2'
 #### Listening History Query (uses existing PlayedTrack data)
 ```sql
 SELECT * FROM played_tracks 
-WHERE source = 'spotify' 
+WHERE source = 'spotify'  
 ORDER BY played_at DESC 
 LIMIT ? OFFSET ?
 ```
