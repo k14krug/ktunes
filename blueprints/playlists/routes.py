@@ -1,6 +1,7 @@
 # blueprints/playlists/routes.py
-from flask import render_template, redirect, url_for, abort, jsonify
+from flask import render_template, redirect, url_for, abort, jsonify, request
 from flask_login import login_required, current_user
+from extensions import db
 import os
 try:
     import markdown
@@ -110,5 +111,81 @@ def create_playlist(engine_id):
 @bp.route('/manage_genres', methods=['GET', 'POST'])
 @login_required
 def manage_genres():
-    # Your logic for managing genres goes here
-    return render_template('playlists/manage_genres.html')
+    """Manage track genres with filtering and pagination"""
+    from models import Track
+    from sqlalchemy import func, or_
+    
+    # Get pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = 50
+    
+    # Get filter parameters
+    category_filter = request.args.get('category', '')
+    search_query = request.args.get('search', '')
+    
+    # Get sorting parameters
+    sort_column = request.args.get('sort', 'artist')
+    sort_direction = request.args.get('direction', 'asc')
+    
+    # Build query
+    query = Track.query
+    
+    # Apply filters
+    if category_filter:
+        query = query.filter(Track.category == category_filter)
+    
+    if search_query:
+        query = query.filter(
+            or_(
+                Track.song.ilike(f'%{search_query}%'),
+                Track.artist.ilike(f'%{search_query}%')
+            )
+        )
+    
+    # Apply sorting
+    if sort_column == 'song':
+        order_by = Track.song.desc() if sort_direction == 'desc' else Track.song.asc()
+    elif sort_column == 'artist':
+        order_by = Track.artist.desc() if sort_direction == 'desc' else Track.artist.asc()
+    elif sort_column == 'album':
+        order_by = Track.album.desc() if sort_direction == 'desc' else Track.album.asc()
+    elif sort_column == 'category':
+        order_by = Track.category.desc() if sort_direction == 'desc' else Track.category.asc()
+    elif sort_column == 'play_cnt':
+        order_by = Track.play_cnt.desc() if sort_direction == 'desc' else Track.play_cnt.asc()
+    elif sort_column == 'date_added':
+        order_by = Track.date_added.desc() if sort_direction == 'desc' else Track.date_added.asc()
+    elif sort_column == 'last_play_dt':
+        order_by = Track.last_play_dt.desc() if sort_direction == 'desc' else Track.last_play_dt.asc()
+    else:
+        # Default sort by artist and song
+        order_by = [Track.artist.asc(), Track.song.asc()]
+    
+    if isinstance(order_by, list):
+        query = query.order_by(*order_by)
+    else:
+        query = query.order_by(order_by)
+    
+    # Paginate results
+    pagination = query.paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    tracks = pagination.items
+    
+    # Get available categories for filter dropdown
+    categories = db.session.query(Track.category).distinct().filter(Track.category.isnot(None)).all()
+    categories = [cat[0] for cat in categories if cat[0]]
+    
+    return render_template(
+        'playlists/manage_genres.html',
+        tracks=tracks,
+        pagination=pagination,
+        categories=categories,
+        current_category=category_filter,
+        current_search=search_query,
+        sort_column=sort_column,
+        sort_direction=sort_direction
+    )

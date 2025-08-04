@@ -90,9 +90,13 @@ _spotify_client_cache_time = None
 _last_api_check_cache = None
 _last_api_check_time = None
 
-def get_spotify_client():
+def get_spotify_client(allow_interactive_auth=False):
     """
     Get an authenticated Spotify client using SpotifyOAuth with caching.
+    
+    Args:
+        allow_interactive_auth (bool): If True, allows interactive browser authentication.
+                                     If False, only uses stored tokens (for background tasks).
     """
     global _spotify_client_cache, _spotify_client_cache_time
     
@@ -106,25 +110,84 @@ def get_spotify_client():
         return _spotify_client_cache
     
     try:
-        sp_oauth = SpotifyOAuth(
-            client_id=current_app.config['SPOTIPY_CLIENT_ID'],
-            client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
-            redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
-            scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload",
-        )
-        # Add timeout and retry configuration to avoid hanging on slow API calls
-        client = spotipy.Spotify(
-            auth_manager=sp_oauth,
-            requests_timeout=5,  # Reduced from 10 to 5 seconds
-            retries=1,  # Reduced from 3 to 1 for faster failure
-            backoff_factor=0.1  # Faster backoff between retries
-        )
+        # For background tasks, we need to use stored tokens only
+        if not allow_interactive_auth:
+            # Try to get existing token from database
+            token = get_spotify_token()
+            if not token:
+                current_app.logger.error("No Spotify token found in database for background task")
+                return None
+            
+            # Check if token is still valid (with 5 minute buffer)
+            current_time_unix = int(time.time())
+            if token.expires_at - 300 < current_time_unix:
+                # Token is expired or expiring soon, try to refresh
+                try:
+                    sp_oauth = SpotifyOAuth(
+                        client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+                        client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+                        redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
+                        scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played user-read-playback-state ugc-image-upload",
+                    )
+                    
+                    # Refresh the token without user interaction
+                    refreshed_token_info = sp_oauth.refresh_access_token(token.refresh_token)
+                    
+                    # Update token in database
+                    token.access_token = refreshed_token_info['access_token']
+                    token.refresh_token = refreshed_token_info.get('refresh_token', token.refresh_token)
+                    token.expires_at = refreshed_token_info['expires_at']
+                    db.session.commit()
+                    
+                    current_app.logger.info("Successfully refreshed Spotify token for background task")
+                    
+                except Exception as refresh_error:
+                    current_app.logger.error(f"Failed to refresh Spotify token for background task: {refresh_error}")
+                    return None
+            
+            # Create client with the valid token
+            try:
+                client = spotipy.Spotify(
+                    auth=token.access_token,
+                    requests_timeout=5,
+                    retries=1,
+                    backoff_factor=0.1
+                )
+                
+                # Test the client with a simple API call
+                client.me()
+                
+                # Cache the client
+                _spotify_client_cache = client
+                _spotify_client_cache_time = current_time
+                
+                return client
+                
+            except Exception as client_error:
+                current_app.logger.error(f"Failed to create Spotify client with token: {client_error}")
+                return None
         
-        # Cache the client
-        _spotify_client_cache = client
-        _spotify_client_cache_time = current_time
-        
-        return client
+        else:
+            # Interactive mode - original behavior for web requests
+            sp_oauth = SpotifyOAuth(
+                client_id=current_app.config['SPOTIPY_CLIENT_ID'],
+                client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
+                redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
+                scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played user-read-playback-state ugc-image-upload",
+            )
+            # Add timeout and retry configuration to avoid hanging on slow API calls
+            client = spotipy.Spotify(
+                auth_manager=sp_oauth,
+                requests_timeout=5,  # Reduced from 10 to 5 seconds
+                retries=1,  # Reduced from 3 to 1 for faster failure
+                backoff_factor=0.1  # Faster backoff between retries
+            )
+            
+            # Cache the client
+            _spotify_client_cache = client
+            _spotify_client_cache_time = current_time
+            
+            return client
     except Exception as e:
         current_app.logger.error(f"Error creating Spotify client: {e}")
         return None
@@ -138,7 +201,7 @@ def spotify_auth():
         client_secret=current_app.config['SPOTIPY_CLIENT_SECRET'],
         redirect_uri=current_app.config['SPOTIPY_REDIRECT_URI'],
         #scope="playlist-modify-public playlist-modify-private user-read-recently-played"
-        scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played ugc-image-upload"
+        scope="playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative user-read-recently-played user-read-playback-state ugc-image-upload"
     )
     auth_url = sp_oauth.get_authorize_url()
     return url_for('route_callback', _external=True, _scheme='http')
@@ -484,10 +547,10 @@ def export_playlist_to_spotify(playlist_name, username=None, playlist_tracks=Non
     :return: A tuple (success: bool, result: dict).
     """
     try:
-        # Get Spotify client
-        sp = get_spotify_client()
+        # Get Spotify client - use non-interactive for background tasks
+        sp = get_spotify_client(allow_interactive_auth=False)
         if not sp:
-            return False, {"message": "Spotify client not authenticated.", "redirect": spotify_auth()}
+            return False, {"message": "Spotify client not authenticated for background task.", "redirect": spotify_auth()}
 
         # Use the provided username or default to the current user
         username = username or current_user.username
@@ -529,9 +592,10 @@ def create_spotify_playlist(playlist_name, tracks, public=True):
     """Create or replace the 'kTunes' playlist on Spotify and add tracks."""
     print(f"Starting create_spotify_playlist: {playlist_name}")
     mismatches = []
-    sp = get_spotify_client()
+    # Use non-interactive auth for background tasks
+    sp = get_spotify_client(allow_interactive_auth=False)
     if not sp:
-        return False, "Spotify client not authenticated."
+        return False, "Spotify client not authenticated for background task."
 
     user_id = sp.me()['id']
     
@@ -796,11 +860,76 @@ def encode_image_to_base64(image_path):
         print(f"Error encoding image to Base64: {e}")
         return None
 
+def check_if_krug_playlist_is_playing():
+    """
+    Check if the KRUG FM 96.2 playlist is currently being played on Spotify.
+    
+    Returns:
+        tuple: (is_playing: bool, current_track_info: dict, error: str)
+        - is_playing: True if KRUG FM 96.2 is currently playing
+        - current_track_info: Dict with track details if playing, None otherwise
+        - error: Error message if API call fails, None otherwise
+    """
+    # Use non-interactive auth for background tasks
+    sp = get_spotify_client(allow_interactive_auth=False)
+    if not sp:
+        return False, None, "Spotify client not authenticated for background task."
+    
+    try:
+        current_playback = sp.current_playback()
+        
+        # Check if anything is currently playing
+        if not current_playback or not current_playback.get('is_playing'):
+            return False, None, None
+        
+        # Check if playback is from a playlist context
+        context = current_playback.get('context')
+        if not context or context.get('type') != 'playlist':
+            return False, None, None
+        
+        # Get the playlist URI and fetch playlist details
+        playlist_uri = context.get('uri')
+        if not playlist_uri:
+            return False, None, None
+        
+        try:
+            playlist = sp.playlist(playlist_uri)
+            playlist_name = playlist.get('name', '')
+            
+            # Check if it's the KRUG FM 96.2 playlist
+            if playlist_name == "KRUG FM 96.2":
+                # Extract current track information
+                track = current_playback.get('item', {})
+                current_track_info = {
+                    'track_name': track.get('name', 'Unknown'),
+                    'artist': ', '.join(artist['name'] for artist in track.get('artists', [])),
+                    'track_id': track.get('id'),
+                    'progress_ms': current_playback.get('progress_ms', 0),
+                    'duration_ms': track.get('duration_ms', 0),
+                    'playlist_name': playlist_name,
+                    'playlist_uri': playlist_uri
+                }
+                
+                current_app.logger.info(f"KRUG FM 96.2 is currently playing: {current_track_info['track_name']} by {current_track_info['artist']}")
+                return True, current_track_info, None
+            else:
+                current_app.logger.debug(f"Different playlist is playing: {playlist_name}")
+                return False, None, None
+                
+        except Exception as playlist_error:
+            current_app.logger.warning(f"Error fetching playlist details: {playlist_error}")
+            return False, None, f"Error fetching playlist details: {playlist_error}"
+        
+    except Exception as e:
+        current_app.logger.error(f"Error checking current playback: {e}")
+        return False, None, f"Error checking current playback: {e}"
+
 def fetch_recent_tracks(limit=50, ktunes_playlist_name="kTunes"):
     """Fetch the most recently played tracks from Spotify."""
-    sp = get_spotify_client()
+    # Use non-interactive auth for background tasks (scheduled jobs)
+    sp = get_spotify_client(allow_interactive_auth=False)
     if not sp:
-        return None, "Spotify client not authenticated."
+        return None, "Spotify client not authenticated for background task."
     try:
         results = sp.current_user_recently_played(limit=limit)
         recent_tracks = []

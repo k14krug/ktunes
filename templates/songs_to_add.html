@@ -4,6 +4,7 @@
 <div class="container">
     <h2>Songs to Add</h2>
     <form method="post" action="{{ url_for('spotify.add_songs_to_tracks') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="sticky-top bg-white py-2">
             <button type="submit" class="btn btn-primary">Add Selected Songs to Tracks</button>
         </div>

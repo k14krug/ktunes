@@ -42,7 +42,7 @@
             "enabled": false
         },
         "export_default_playlist_to_spotify_hourly": {
-            "enabled": true
+            "enabled": false
         },
         "playlist_versioning_cleanup_daily": {
             "enabled": true

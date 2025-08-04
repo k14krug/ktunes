@@ -6,7 +6,7 @@ from services.task_service import run_export_default_playlist
 from services.spotify_service import (
     spotify_auth, spotify_callback, get_spotify_client, 
     export_playlist_to_spotify, fetch_and_update_recent_tracks,
-    get_listening_history_with_playlist_context
+    get_listening_history_with_playlist_context, check_if_krug_playlist_is_playing
 )
 from models import Track, SpotifyURI, PlayedTrack, Playlist
 from datetime import datetime
@@ -48,6 +48,45 @@ def route_callback():
     print("  Redirecting to Spotify callback")
     return spotify_callback()
 
+@spotify_bp.route('/check_current_playback')
+@login_required
+def check_current_playback():
+    """Test endpoint to check if KRUG FM 96.2 is currently playing"""
+    # For web requests, we can use interactive auth if needed
+    try:
+        # First try non-interactive (faster)
+        is_playing, current_track_info, error = check_if_krug_playlist_is_playing()
+        
+        if error and "not authenticated" in error:
+            # If auth failed, we can try interactive for web requests
+            # But for now, just return the error to avoid browser popups
+            pass
+    except Exception as e:
+        error = str(e)
+        is_playing = False
+        current_track_info = None
+    
+    if error:
+        return jsonify({
+            "success": False,
+            "error": error
+        }), 500
+    
+    if is_playing and current_track_info:
+        return jsonify({
+            "success": True,
+            "is_krug_playing": True,
+            "current_track": current_track_info,
+            "message": f"KRUG FM 96.2 is currently playing: {current_track_info['track_name']} by {current_track_info['artist']}"
+        })
+    else:
+        return jsonify({
+            "success": True,
+            "is_krug_playing": False,
+            "current_track": None,
+            "message": "KRUG FM 96.2 is not currently playing"
+        })
+
 @spotify_bp.route('/export_to_spotify/<playlist_name>', methods=['POST'])
 @login_required
 def export_to_spotify(playlist_name):
@@ -76,7 +115,7 @@ def export_to_spotify(playlist_name):
 @spotify_bp.route('/spotify_playlists')
 @login_required
 def spotify_playlists():
-    sp = get_spotify_client()
+    sp = get_spotify_client(allow_interactive_auth=True)
     if not sp:
         return redirect(url_for('route_spotify_auth'))
 
@@ -93,7 +132,7 @@ def spotify_playlists():
 @spotify_bp.route('/spotify_playlist/<playlist_id>')
 @login_required
 def spotify_playlist(playlist_id):
-    sp = get_spotify_client()
+    sp = get_spotify_client(allow_interactive_auth=True)
     if not sp:
         return redirect(url_for('route_spotify_auth'))
     
@@ -107,7 +146,7 @@ def spotify_playlist(playlist_id):
 @spotify_bp.route('/songs_to_add')
 @login_required
 def songs_to_add():
-    sp = get_spotify_client()
+    sp = get_spotify_client(allow_interactive_auth=True)
     if not sp:
         return redirect(url_for('route_spotify_auth'))
 
@@ -187,7 +226,7 @@ def songs_to_add():
 @login_required
 def add_songs_to_tracks():
     track_ids = request.form.getlist('track_ids')
-    sp = get_spotify_client()
+    sp = get_spotify_client(allow_interactive_auth=True)
     if not sp:
         return redirect(url_for('route_spotify_auth'))
 
