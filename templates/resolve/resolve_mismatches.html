@@ -107,6 +107,7 @@
                                 View {{ item.duplicate_count }} Duplicates
                             </button>
                             <form method="POST" action="{{ url_for('resolve.cleanup_duplicates') }}" style="display: inline-block;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="track_id" value="{{ item.local_track_details.id }}">
                                 <button type="submit" class="btn btn-warning w-100" onclick="return confirm('Remove all {{ item.duplicate_count }} unnecessary mismatch records for this track?')">
                                     Clean Up Duplicates
@@ -193,6 +194,7 @@
                         <div class="btn-group-vertical btn-group-sm" role="group" aria-label="Mismatch Actions">
                             <!-- Action: Link to this Spotify Track -->
                             <form method="POST" action="{{ url_for('resolve.link_mismatch_to_spotify_track') }}" style="display: inline-block; margin-bottom: 5px;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
                                 <input type="hidden" name="local_track_id" value="{{ item.local_track_details.id if item.local_track_details else item['track id'] }}">
                                 <input type="hidden" name="spotify_uri_of_mismatch" value="{{ item.spotify_track_uri if item.spotify_track_uri else '' }}">
@@ -206,6 +208,7 @@
 
                             <!-- Action: Mark as 'No Match on Spotify' -->
                             <form method="POST" action="{{ url_for('resolve.mark_mismatch_as_no_match') }}" style="display: inline-block; margin-bottom: 5px;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
                                 <input type="hidden" name="local_track_id" value="{{ item.local_track_details.id if item.local_track_details else item['track id'] }}">
                                 <button type="submit" class="btn btn-warning w-100">No Match</button>
@@ -218,6 +221,7 @@
                             
                             <!-- Action: Ignore/Dismiss -->
                             <form method="POST" action="{{ url_for('resolve.ignore_mismatch') }}" style="display: inline-block;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="log_identifier" value="{{ item.log_identifier }}">
                                 <button type="submit" class="btn btn-danger w-100">Ignore</button>
                             </form>
@@ -228,6 +232,7 @@
                             <div class="modal-dialog">
                                 <div class="modal-content">
                                     <form id="manualLinkForm-{{ loop.index }}" method="POST" action="{{ url_for('resolve.manual_link_mismatch') }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                         <div class="modal-header">
                                             <h5 class="modal-title" id="manualLinkModalLabel-{{ loop.index }}">Manually Link Spotify Track</h5>
                                             <button type="button" class="close" data-dismiss="modal" aria-label="Close">
