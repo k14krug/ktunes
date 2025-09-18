@@ -61,6 +61,7 @@ def _generate_playlist_and_export(playlist_name, username):
     """
     Generates the playlist and then exports it.
     """
+    print(f"Generating playlist {playlist_name} for user {username}, target platform=spotify")
     success, playlist_entries = generate_default_playlist(playlist_name, username, target_platform='spotify')
     if not success:
         return False, playlist_entries
