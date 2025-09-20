@@ -993,6 +993,9 @@ class DuplicateDetectionService:
                                 Track.artist.ilike(search_pattern)
                             )
                         )
+                    
+                    # Removed track limit - analysis is working well
+                    
                     return query
                 
                 # Get total count for progress tracking

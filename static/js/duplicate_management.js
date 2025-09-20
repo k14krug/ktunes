@@ -987,7 +987,12 @@ class DuplicateManager {
     async performDeletion() {
         if (this.selectedDuplicates.size === 0) return;
         
+        // Hide confirmation modal and wait for it to fully close
         $('#confirmDeleteModal').modal('hide');
+        
+        // Wait a moment for the modal to fully close before showing progress
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
         $('#progressModal').modal('show');
         $('#progressText').text('Deleting selected duplicates...');
         
@@ -1008,13 +1013,32 @@ class DuplicateManager {
             const result = await response.json();
             
             if (result.success) {
-                $('#progressModal').modal('hide');
                 this.showSuccess(`Successfully deleted ${result.deleted_count} duplicate songs.`);
                 
-                // Clear selections and refresh
+                // Clear selections and update display
                 this.selectedDuplicates.clear();
                 this.updateSelectedCount();
-                this.refreshData();
+                
+                // Clear all progress states and modals
+                this.clearProgressState();
+                
+                // After delete, refresh the persistent analysis to show updated results
+                if (this.currentAnalysisId && window.duplicatePersistenceManager) {
+                    console.log('Refreshing analysis after delete operation');
+                    try {
+                        await window.duplicatePersistenceManager.loadAnalysis(this.currentAnalysisId);
+                        console.log('Analysis refresh completed after delete');
+                    } catch (error) {
+                        console.error('Error refreshing analysis after delete:', error);
+                        // Fallback to local update
+                        this.removeDeletedTracksFromResults(trackIds);
+                        this.renderDuplicateGroups();
+                    }
+                } else {
+                    // Fallback: Remove deleted tracks from current results
+                    this.removeDeletedTracksFromResults(trackIds);
+                    this.renderDuplicateGroups();
+                }
             } else {
                 $('#progressModal').modal('hide');
                 this.showError('Error deleting duplicates: ' + (result.error || 'Unknown error'));
@@ -1056,8 +1080,26 @@ class DuplicateManager {
                 this.selectedDuplicates.delete(trackId);
                 this.updateSelectedCount();
                 
-                // Refresh the data to update the display
-                this.refreshData();
+                // Clear all progress states and modals
+                this.clearProgressState();
+                
+                // After delete, refresh the persistent analysis to show updated results
+                if (this.currentAnalysisId && window.duplicatePersistenceManager) {
+                    console.log('Refreshing analysis after individual delete operation');
+                    try {
+                        await window.duplicatePersistenceManager.loadAnalysis(this.currentAnalysisId);
+                        console.log('Analysis refresh completed after individual delete');
+                    } catch (error) {
+                        console.error('Error refreshing analysis after individual delete:', error);
+                        // Fallback to local update
+                        this.removeDeletedTracksFromResults([trackId]);
+                        this.renderDuplicateGroups();
+                    }
+                } else {
+                    // Fallback: Remove deleted track from current results
+                    this.removeDeletedTracksFromResults([trackId]);
+                    this.renderDuplicateGroups();
+                }
             } else {
                 this.showError('Error deleting track: ' + (result.error || 'Unknown error'));
             }
@@ -1180,6 +1222,28 @@ class DuplicateManager {
         setTimeout(() => {
             $('.alert-success').alert('close');
         }, 5000);
+    }
+    
+    /**
+     * Clear all progress states and hide modals
+     */
+    clearProgressState() {
+        console.log('Clearing all progress states and modals in duplicate manager');
+        
+        // Hide all modals that might be open
+        $('#progressModal').modal('hide');
+        $('#confirmDeleteModal').modal('hide');
+        $('#progressTrackingSection').hide();
+        $('#loadingSection').hide();
+        
+        // Remove any modal backdrops that might be stuck
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open');
+        
+        // Ensure main sections are visible
+        $('#duplicateGroupsSection').show();
+        $('#statisticsSection').show();
+        $('#bulkActionsSection').show();
     }
     
     getCSRFToken() {
@@ -1641,6 +1705,39 @@ class DuplicateManager {
         this.scanForDuplicates();
     }
     
+    /**
+     * Remove deleted tracks from current results without triggering a full re-analysis
+     */
+    removeDeletedTracksFromResults(deletedTrackIds) {
+        // Remove tracks from duplicate groups
+        this.duplicateGroups = this.duplicateGroups.map(group => {
+            // Filter out deleted tracks from canonical and duplicates
+            const updatedGroup = {
+                ...group,
+                duplicates: group.duplicates.filter(track => !deletedTrackIds.includes(track.id))
+            };
+            
+            // If canonical track was deleted, promote the first duplicate
+            if (deletedTrackIds.includes(group.canonical_song.id)) {
+                if (updatedGroup.duplicates.length > 0) {
+                    updatedGroup.canonical_song = updatedGroup.duplicates[0];
+                    updatedGroup.duplicates = updatedGroup.duplicates.slice(1);
+                } else {
+                    // No tracks left in group, mark for removal
+                    return null;
+                }
+            }
+            
+            return updatedGroup;
+        }).filter(group => group !== null && group.duplicates.length > 0); // Remove empty groups
+        
+        // Update filtered groups
+        this.filteredGroups = this.duplicateGroups;
+        
+        // Update statistics
+        this.updateStatistics();
+    }
+    
     async applyFiltersWithCancellation() {
         // Cancel previous request if still pending
         if (this.lastFilterRequest) {
@@ -1758,6 +1855,9 @@ class DuplicateManager {
      * Load analysis results from persistence data
      */
     loadAnalysisResults(analysisData) {
+        // Clear all progress states and modals
+        this.clearProgressState();
+        
         this.duplicateGroups = analysisData.duplicate_groups || [];
         this.filteredGroups = this.duplicateGroups;
         this.currentAnalysisId = analysisData.analysis_id;
@@ -1924,6 +2024,9 @@ function debounce(func, wait) {
 // Initialize when document is ready
 $(document).ready(function() {
     const duplicateManager = new DuplicateManager();
+    
+    // Make it globally accessible for persistence integration
+    window.duplicateManager = duplicateManager;
     
     // Handle checkbox changes
     $(document).on('change', '.duplicate-checkbox', function() {

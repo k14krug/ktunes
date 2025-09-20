@@ -6,7 +6,7 @@ from services.duplicate_persistence_service import DuplicatePersistenceService
 from services.itunes_comparison_service import ITunesComparisonService
 from services.error_handling_service import get_error_service
 from services.audit_logging_service import get_audit_service
-from models import Track
+from models import Track, DuplicateAnalysisResult
 from extensions import db
 import logging
 import os
@@ -1097,13 +1097,17 @@ def get_analysis(analysis_id):
         persistence_service = DuplicatePersistenceService()
         
         # Load the analysis result
+        logging.info(f"GET /admin/duplicates/analysis/{analysis_id} - Loading analysis result")
         analysis_result = persistence_service.load_analysis_result(analysis_id)
         
         if not analysis_result:
+            logging.error(f"Analysis {analysis_id} not found in database")
             return jsonify({
                 'success': False,
                 'error': 'Analysis not found'
             }), 404
+        
+        logging.info(f"Analysis {analysis_id} loaded successfully, status: {analysis_result.status}, groups: {analysis_result.total_groups_found}")
         
         # Security check - ensure user owns this analysis
         if analysis_result.user_id != current_user.id:
@@ -1113,12 +1117,29 @@ def get_analysis(analysis_id):
             }), 403
         
         # Get age information and recommendations
-        age_info = persistence_service.get_analysis_age_info(analysis_result)
-        refresh_recommendations = persistence_service.get_refresh_recommendations(analysis_result)
-        library_changes = persistence_service.get_library_change_summary(analysis_result)
+        try:
+            age_info = persistence_service.get_analysis_age_info(analysis_result)
+            logging.info(f"Age info for {analysis_id}: {age_info}")
+        except Exception as e:
+            logging.error(f"Error getting age info for {analysis_id}: {e}")
+            age_info = {'relative_age': 'Unknown', 'staleness_level': 'fresh'}
+        
+        try:
+            refresh_recommendations = persistence_service.get_refresh_recommendations(analysis_result)
+        except Exception as e:
+            logging.error(f"Error getting refresh recommendations for {analysis_id}: {e}")
+            refresh_recommendations = {}
+        
+        try:
+            library_changes = persistence_service.get_library_change_summary(analysis_result)
+        except Exception as e:
+            logging.error(f"Error getting library changes for {analysis_id}: {e}")
+            library_changes = {'has_changes': False}
         
         # Convert to duplicate groups for display
+        logging.info(f"Converting analysis {analysis_id} to duplicate groups")
         duplicate_groups = persistence_service.convert_to_duplicate_groups(analysis_result)
+        logging.info(f"Converted to {len(duplicate_groups)} duplicate groups")
         
         # Get pagination parameters
         page = int(request.args.get('page', 1))
