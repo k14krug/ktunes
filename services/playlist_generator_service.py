@@ -13,6 +13,7 @@ import os
 from collections import defaultdict
 from pytz import timezone
 from tzlocal import get_localzone
+from pprint import pformat
 
 from services.base_playlist_engine import BasePlaylistEngine
 from blueprints.playlists.forms import PlaylistGeneratorForm
@@ -72,6 +73,14 @@ def generate_default_playlist(playlist_name, username=None, target_platform='loc
         config['playlist_defaults']['playlist_name'] = playlist_name
         config['playlist_defaults']['target_platform'] = target_platform
         
+        logger.info(
+            "Preparing to generate playlist '%s' for user '%s' (target=%s) with config: %s",
+            playlist_name,
+            user.username if user else username or 'default',
+            target_platform,
+            pformat(config['playlist_defaults'], indent=2, width=100),
+        )
+
         # Initialize the PlaylistGenerator
         generator = PlaylistGenerator(user=user, config=config['playlist_defaults'])
         
@@ -164,6 +173,7 @@ class PlaylistGenerator(BasePlaylistEngine):
         :return: Tuple of the generated playlist and statistics
         """
        
+        self._log_generation_parameters()
         self._prepare_virtual_categories()
         
         # Initialize artist_last_played from the most recent playlist is now done when the index page is initially displayed
@@ -199,6 +209,48 @@ class PlaylistGenerator(BasePlaylistEngine):
         print(f"Time to save playlist to M3U file: {save_time}")
         
         return playlist_entries, self._get_statistics()
+
+    def _log_generation_parameters(self) -> None:
+        """Log the core parameters used for playlist generation in a readable format."""
+        logger.info(
+            "Generating playlist '%s' for user '%s' (target=%s, length=%s minutes, "
+            "approx_tracks=%s, min_recent_add_playcount=%s)",
+            self.playlist_name,
+            self.username,
+            self.target_platform,
+            self.playlist_length,
+            self.total_songs,
+            self.minimum_recent_add_playcount,
+        )
+
+        categories = self.config.get('categories', [])
+        if categories:
+            logger.info("  Category mix:")
+            for category in categories:
+                if not isinstance(category, dict):
+                    logger.info("    - %s", category)
+                    continue
+
+                extras = {k: v for k, v in category.items() if k not in {'name', 'percentage', 'artist_repeat'}}
+                base_msg = (
+                    "    - %s: %s%% (artist repeat: %s)"
+                    % (
+                        category.get('name', 'Unknown'),
+                        category.get('percentage', '?'),
+                        category.get('artist_repeat', 'n/a'),
+                    )
+                )
+                if extras:
+                    base_msg += f" extras={pformat(extras, indent=2, width=80)}"
+
+                logger.info(base_msg)
+        else:
+            logger.info("  No categories configured")
+
+        known_keys = {'playlist_name', 'playlist_length', 'minimum_recent_add_playcount', 'target_platform', 'categories'}
+        extras = {k: v for k, v in self.config.items() if k not in known_keys}
+        if extras:
+            logger.info("  Additional settings: %s", pformat(extras, indent=2, width=100))
     
     def find_stop_point_in_playlist(self, playlist, recently_played_tracks):
         """Find where the sequence of recently played tracks matches in the playlist."""
@@ -359,6 +411,30 @@ class PlaylistGenerator(BasePlaylistEngine):
         
         logger.info(f"First category: {first_category}")
         logger.info(f"Second category: {second_category}")
+
+        # Step 1: graduate any RecentAdd tracks that have met the playcount threshold
+        graduating_tracks = Track.query.filter(
+            Track.category == 'RecentAdd',
+            Track.play_cnt != None,
+            Track.play_cnt >= self.minimum_recent_add_playcount
+        ).all()
+        logger.info(
+            "Tracks graduating from RecentAdd (play_cnt ≥ %s): %s",
+            self.minimum_recent_add_playcount,
+            len(graduating_tracks),
+        )
+
+        for track in graduating_tracks:
+            track.category = first_category
+
+        for track in graduating_tracks:
+            recent_add_tracks = self.category_tracks.get('RecentAdd', [])
+            if track in recent_add_tracks:
+                recent_add_tracks.remove(track)
+
+            category_tracks = self.category_tracks[first_category]
+            if track not in category_tracks:
+                category_tracks.append(track)
 
         # Measure the time to query and modify recent tracks
         start_recent_tracks_time = datetime.now()
