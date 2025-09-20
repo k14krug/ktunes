@@ -30,7 +30,7 @@ def generate_default_playlist(playlist_name, username=None, target_platform='loc
     :return: (bool, str) Tuple indicating success and a message.
     """
     try:
-        print(f"Start of generating_default_playlist '{playlist_name}', username: {username}")
+        print(f"Start of generating_default_playlist '{playlist_name}', username: {username}, target_platform: {target_platform}")
         # Load hardcoded default configuration
         config = load_config(force_defaults=True)
         
@@ -68,8 +68,9 @@ def generate_default_playlist(playlist_name, username=None, target_platform='loc
             Playlist.query.filter_by(playlist_name=playlist_name, username=username).delete()
             db.session.commit()
         
-        # Add the playlist_name to the config
+        # Add the playlist_name and target_platform to the config
         config['playlist_defaults']['playlist_name'] = playlist_name
+        config['playlist_defaults']['target_platform'] = target_platform
         
         # Initialize the PlaylistGenerator
         generator = PlaylistGenerator(user=user, config=config['playlist_defaults'])
@@ -118,7 +119,7 @@ class PlaylistGenerator(BasePlaylistEngine):
         self.minimum_recent_add_playcount = self.config['minimum_recent_add_playcount']
         self.categories = {cat['name']: cat for cat in self.config['categories']}
         self.username = self.user.username if self.user else "default"
-        self.target_platform = self.config.get('target_platform', 'local')
+        self.target_platform = self.config.get('target_platform', 'local') 
 
         # Load all tracks into memory once during initialization
         tracks_query = db.session.query(Track).outerjoin(SpotifyURI, Track.id == SpotifyURI.track_id)
@@ -131,6 +132,9 @@ class PlaylistGenerator(BasePlaylistEngine):
                     SpotifyURI.status != 'not_found_in_spotify'
                 )
             )
+            print(f"Filtering tracks for Spotify URIs since target platform is Spotify")
+        else:
+            print(f"Not filtering tracks for Spotify URIs since target platform is not Spotify",self.target_platform)
         
         self.all_tracks = {track.id: track for track in tracks_query.all()}
         
