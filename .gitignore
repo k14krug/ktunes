@@ -16,3 +16,5 @@ config.json
 .env
 *.json
 /venv/
+proj.conf
+proj.conf.*
