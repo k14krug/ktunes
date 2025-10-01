@@ -318,6 +318,13 @@ def refresh_listening_history():
     return redirect(url_for('spotify.listening_history'))
 
 
+@spotify_bp.route('/playlist_review_guide')
+@login_required
+def playlist_review_guide():
+    """Render the in-app wiki guide for Spotify playlist review."""
+    return render_template('spotify_playlist_review_guide.html')
+
+
 @spotify_bp.route('/listening_history')
 @login_required
 def listening_history():

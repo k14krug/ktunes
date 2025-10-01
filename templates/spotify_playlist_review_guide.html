@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="d-flex align-items-center mb-4">
+                <i class="fab fa-spotify fa-2x mr-3" style="color: var(--spotify-green);"></i>
+                <div>
+                    <h1 class="mb-1">Spotify Playlist Review Guide</h1>
+                    <p class="text-muted mb-0">Understand how kTunes builds the KRUG playlist, checks Spotify playback, and where to fix discrepancies.</p>
+                </div>
+            </div>
+
+            <div class="alert alert-info border-left border-primary shadow-sm">
+                <strong>Quick start:</strong> Run <em>Spotify Tools → Listening History</em> after an export, then open <em>Resolve Mismatches</em> or <em>Resolve Not Found</em> for anything flagged in the report below.
+            </div>
+
+            <section class="mb-5">
+                <h2>Workflow at a glance</h2>
+                <ol class="pl-3">
+                    <li><strong>Create the intended playlist.</strong> Generate the KRUG FM 96.2 playlist; the ordered result is stored in the <code>playlist</code> table.</li>
+                    <li><strong>Export to Spotify.</strong> kTunes reuses vetted URIs first and tags any auto-found results as <code>matched</code>, <code>mismatch_accepted</code>, or <code>not_found_in_spotify</code>.</li>
+                    <li><strong>Capture what actually played.</strong> Listening history polling adds each Spotify play to <code>played_tracks</code> and tries to link it back to the intended track.</li>
+                    <li><strong>Compare and resolve.</strong> UI pages highlight mismatches so you can retag, swap URIs, or mark missing Spotify versions.</li>
+                </ol>
+            </section>
+
+            <section class="mb-5">
+                <h2>What kTunes does for you</h2>
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h3 class="h5">Playlist generation</h3>
+                        <p class="mb-0">The <code>generate_default_playlist</code> task rebuilds the KRUG playlist from the Tracks library and snapshots the exact sequence, including historical versions when enabled.</p>
+                    </div>
+                </div>
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h3 class="h5">Spotify export safety nets</h3>
+                        <ul class="mb-0">
+                            <li>Reuses stored <code>matched</code> URIs whenever possible.</li>
+                            <li>Stores fuzzy matches as <code>mismatch_accepted</code> so they play but queue for review.</li>
+                            <li>Marks true misses as <code>not_found_in_spotify</code> and surfaces them immediately.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h3 class="h5">Playback reconciliation</h3>
+                        <ul class="mb-0">
+                            <li>Scheduler or manual refresh pulls the latest Spotify listens in batches of 50.</li>
+                            <li>Every new play is deduped and linked back to a Track via stored URIs or normalized artist/title matching.</li>
+                            <li>Unresolved plays spawn <code>Unmatched</code> tracks so nothing slips through.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="h5">Playlist vs. playback comparison</h3>
+                        <ul class="mb-0">
+                            <li>The listening history view preloads the latest (or version-correct) KRUG playlist snapshot.</li>
+                            <li>Each play is matched to the playlist, with context scoring for repeated songs.</li>
+                            <li>Confidence, position, and correlation method are stored so the UI can spell out why a match was or wasnt made.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mb-5">
+                <h2>Key routes &amp; when to use them</h2>
+                <div class="table-responsive shadow-sm">
+                    <table class="table table-striped align-middle">
+                        <thead class="thead-light">
+                            <tr>
+                                <th scope="col">Menu Path</th>
+                                <th scope="col">Route</th>
+                                <th scope="col">What it shows</th>
+                                <th scope="col">When to run it</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Spotify Tools → Listening History</strong></td>
+                                <td><code>/spotify/listening_history</code></td>
+                                <td>Recent Spotify plays annotated with playlist position, confidence, and warnings.</td>
+                                <td>After exports or anytime you need to confirm what actually aired.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Spotify Tools → Resolve Mismatches</strong></td>
+                                <td><code>/resolve/mismatches</code></td>
+                                <td>Tracks where the Spotify URI played differs from your library metadata.</td>
+                                <td>Clear out fuzzy matches by retagging or pasting the correct URI.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Spotify Tools → Resolve Not Found</strong></td>
+                                <td><code>/resolve/not_found</code></td>
+                                <td>Tracks that Spotify searches could not locate during export.</td>
+                                <td>Swap in the right URI or mark the song as having no Spotify version.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Spotify Tools → Resolve Unmatched Tracks</strong></td>
+                                <td><code>/resolve/unmatched_tracks</code></td>
+                                <td>Spotify plays that couldnt be tied back to any Track record.</td>
+                                <td>Adopt new discoveries into the library or discard off-brand plays.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Spotify Tools → Not Found During Export</strong></td>
+                                <td><code>/resolve/not_found_in_spotify_export</code></td>
+                                <td>Summary of failures from the most recent export job.</td>
+                                <td>Quick triage right after you push a refreshed playlist.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Spotify Tools → Playlist Review Guide</strong></td>
+                                <td><code>/spotify/playlist_review_guide</code></td>
+                                <td>This page. Full explanation plus troubleshooting tips.</td>
+                                <td>Use as a checklist when onboarding new operators.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="mb-5">
+                <h2>Troubleshooting &amp; tips</h2>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h3 class="h6 text-uppercase text-muted">No new plays appearing</h3>
+                                <ul class="mb-0">
+                                    <li>Use <em>Refresh Listening History</em> (button on the listening history page) to bypass the two-minute cache.</li>
+                                    <li>Check that Spotify is playing from the KRUG playlist; other sources will still log but may not match.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h3 class="h6 text-uppercase text-muted">Mismatches wont clear</h3>
+                                <ul class="mb-0">
+                                    <li>Double-check the normalized artist/title in Tracks; even punctuation can drive a fuzzy match.</li>
+                                    <li>Use the “Paste Spotify URI” feature on the mismatch row to enforce the exact track you expect.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="h6 text-uppercase text-muted">Still stuck?</h3>
+                        <ul class="mb-0">
+                            <li>Peek at <code>services/spotify_service.py</code> to understand the matching logic.</li>
+                            <li>Review <code>docs/spotify_playlist_review.md</code> for the deeper technical background.</li>
+                            <li>Capture logs from <code>apscheduler.log</code> if a scheduled export or refresh misbehaves.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1326,7 +1326,25 @@ def correlate_track_with_current_playlist_temporal(artist: str, song: str, playe
                 Playlist.playlist_date == playlist_date
             )
         ).first()
-        
+
+        if not playlist_track:
+            # Fallback to normalized comparison so formatting differences still match
+            normalized_artist = normalize_text(artist)
+            normalized_song = normalize_text(song)
+
+            candidate_tracks = db.session.query(Playlist).filter(
+                and_(
+                    Playlist.playlist_name == 'KRUG FM 96.2',
+                    Playlist.playlist_date == playlist_date
+                )
+            ).all()
+
+            for candidate in candidate_tracks:
+                if (normalize_text(candidate.artist) == normalized_artist and
+                        normalize_text(candidate.song) == normalized_song):
+                    playlist_track = candidate
+                    break
+
         if playlist_track:
             return {
                 'from_playlist': True,

@@ -4,8 +4,8 @@ from flask_paginate import Pagination, get_page_parameter
 from datetime import datetime
 import json
 import os
-from sqlalchemy import func, distinct, desc
-from models import Playlist, Track, PlayedTrack, SpotifyURI
+from sqlalchemy import func, distinct, desc, or_
+from models import Playlist, Track, PlayedTrack, SpotifyURI, PlaylistVersion, PlaylistVersionTrack
 from services.itunes_integrator_wsl import iTunesIntegrator
 from services.playlist_generator_service import PlaylistGenerator
 from services.spotify_service import get_spotify_client
@@ -459,93 +459,190 @@ def view_playlist(playlist_name):
     sp = get_spotify_client()
     if not sp:
         return redirect(url_for('route_spotify_auth'))
-    
+
     # Get filter parameters
     song_filter = request.args.get('song', '')
     artist_filter = request.args.get('artist', '')
     category_filter = request.args.get('category', '')
+    version_id = request.args.get('version_id', type=str)
 
-    # Modified query to join with SpotifyURI table
-    query = db.session.query(
-        Playlist,
-        Track.last_play_dt,
-        Track.id.label('track_id')  # Get track_id to fetch URIs later
-    ).join(
-        Track, 
-        (Playlist.artist == Track.artist) & (Playlist.song == Track.song)
-    ).filter(
+    # Gather available versions for this playlist (if any)
+    versions_query = db.session.query(PlaylistVersion).filter(
+        PlaylistVersion.playlist_name == playlist_name
+    )
+    if current_user and getattr(current_user, 'username', None):
+        versions_query = versions_query.filter(
+            or_(
+                PlaylistVersion.username == current_user.username,
+                PlaylistVersion.username.is_(None)
+            )
+        )
+
+    available_versions = versions_query.order_by(PlaylistVersion.active_from.desc()).all()
+    selected_version = None
+    if version_id:
+        selected_version = next((v for v in available_versions if v.version_id == version_id), None)
+        if not selected_version:
+            abort(404)
+
+    # Fetch basic playlist metadata to ensure it exists (for current playlist view)
+    base_playlist_row = db.session.query(Playlist).filter(
         Playlist.playlist_name == playlist_name,
         Playlist.username == current_user.username
-    )
+    ).order_by(Playlist.track_position).first()
 
-    # Apply user filters
-    if song_filter:
-        query = query.filter(Playlist.song.ilike(f'%{song_filter}%'))
-    if artist_filter:
-        query = query.filter(Playlist.artist.ilike(f'%{artist_filter}%'))
-    if category_filter:
-        query = query.filter(Playlist.category.ilike(f'%{category_filter}%'))
+    if not base_playlist_row and not selected_version:
+        abort(404)
 
-    # Execute the query and order by track position
-    playlist_tracks = query.order_by(Playlist.track_position).all()
-    
-    if not playlist_tracks:
-        abort(404)  # Playlist not found
-    
-    # Get playlist information from the first track
+    tracks_query = None
     playlist_info = {
-        'playlist_name': playlist_tracks[0].Playlist.playlist_name,
-        'playlist_date': playlist_tracks[0].Playlist.playlist_date,
-        'track_count': len(playlist_tracks)
+        'playlist_name': playlist_name,
+        'playlist_date': None,
+        'track_count': 0,
+        'version_id': None,
+        'version_active_until': None
     }
-    
-    # Fetch Spotify URIs for all tracks in the playlist
-    track_ids = [track.track_id for track in playlist_tracks]
+
+    if selected_version:
+        tracks_query = db.session.query(
+            PlaylistVersionTrack,
+            Track.last_play_dt,
+            Track.id.label('track_id')
+        ).outerjoin(
+            Track,
+            (Track.artist == PlaylistVersionTrack.artist) & (Track.song == PlaylistVersionTrack.song)
+        ).filter(
+            PlaylistVersionTrack.version_id == selected_version.version_id
+        )
+
+        if song_filter:
+            tracks_query = tracks_query.filter(PlaylistVersionTrack.song.ilike(f'%{song_filter}%'))
+        if artist_filter:
+            tracks_query = tracks_query.filter(PlaylistVersionTrack.artist.ilike(f'%{artist_filter}%'))
+        if category_filter:
+            tracks_query = tracks_query.filter(PlaylistVersionTrack.category.ilike(f'%{category_filter}%'))
+
+        playlist_rows = tracks_query.order_by(PlaylistVersionTrack.track_position).all()
+
+        playlist_info.update({
+            'playlist_date': selected_version.active_from,
+            'track_count': selected_version.track_count,
+            'version_id': selected_version.version_id,
+            'version_active_until': selected_version.active_until
+        })
+    else:
+        tracks_query = db.session.query(
+            Playlist,
+            Track.last_play_dt,
+            Track.id.label('track_id')
+        ).join(
+            Track,
+            (Playlist.artist == Track.artist) & (Playlist.song == Track.song)
+        ).filter(
+            Playlist.playlist_name == playlist_name,
+            Playlist.username == current_user.username
+        )
+
+        if song_filter:
+            tracks_query = tracks_query.filter(Playlist.song.ilike(f'%{song_filter}%'))
+        if artist_filter:
+            tracks_query = tracks_query.filter(Playlist.artist.ilike(f'%{artist_filter}%'))
+        if category_filter:
+            tracks_query = tracks_query.filter(Playlist.category.ilike(f'%{category_filter}%'))
+
+        playlist_rows = tracks_query.order_by(Playlist.track_position).all()
+
+        total_tracks = db.session.query(func.count(Playlist.id)).filter(
+            Playlist.playlist_name == playlist_name,
+            Playlist.username == current_user.username
+        ).scalar()
+
+        playlist_info.update({
+            'playlist_date': base_playlist_row.playlist_date if base_playlist_row else None,
+            'track_count': total_tracks
+        })
+
+    # Build a normalized representation for template rendering
+    normalized_tracks = []
+    track_ids = []
+    for row in playlist_rows:
+        if selected_version:
+            track_src = row.PlaylistVersionTrack
+        else:
+            track_src = row.Playlist
+
+        track_entry = {
+            'track_position': track_src.track_position,
+            'artist': track_src.artist,
+            'song': track_src.song,
+            'category': track_src.category,
+            'play_cnt': track_src.play_cnt,
+            'last_play_dt': row.last_play_dt,
+            'track_id': row.track_id
+        }
+
+        if row.track_id:
+            track_ids.append(row.track_id)
+
+        normalized_tracks.append(track_entry)
+
+    # Fetch Spotify URIs for all tracks in the playlist/version
     spotify_uris_map = {}
-    
-    # Query SpotifyURI table for all tracks in this playlist
-    spotify_uris = db.session.query(SpotifyURI).filter(
-        SpotifyURI.track_id.in_(track_ids)
-    ).all()
-    
-    # Group URIs by track_id for easy access in template
-    for uri in spotify_uris:
-        if uri.track_id not in spotify_uris_map:
-            spotify_uris_map[uri.track_id] = []
-        spotify_uris_map[uri.track_id].append(uri)
-    
-    # Calculate category percentages
+    if track_ids:
+        spotify_uris = db.session.query(SpotifyURI).filter(SpotifyURI.track_id.in_(track_ids)).all()
+        for uri in spotify_uris:
+            spotify_uris_map.setdefault(uri.track_id, []).append(uri)
+
+    for track in normalized_tracks:
+        track_id = track['track_id']
+        track['spotify_uris'] = spotify_uris_map.get(track_id, []) if track_id else []
+
+    # Calculate category percentages and repeat counts based on displayed tracks
     category_counts = {}
-    total_tracks = len(playlist_tracks)
-    for track in playlist_tracks:
-        category_counts[track.Playlist.category] = category_counts.get(track.Playlist.category, 0) + 1
-    
-    # Get the ordered list of categories from the configuration
+    for track in normalized_tracks:
+        category = track['category']
+        category_counts[category] = category_counts.get(category, 0) + 1
+
     ordered_categories = [cat['name'] for cat in config['playlist_defaults']['categories']]
-    
-    # Create an ordered dictionary of category percentages
     category_percentages = []
     category_repeats = {}
+    total_displayed = len(normalized_tracks) if normalized_tracks else 1
+
     for category in ordered_categories:
         if category in category_counts:
-            percentage = (category_counts[category] / total_tracks) * 100
+            percentage = (category_counts[category] / total_displayed) * 100
             category_percentages.append((category, percentage))
-            
-            # Calculate the maximum number of times any song repeats in the category
-            category_tracks = [track for track in playlist_tracks if track.Playlist.category == category]
+
+            # Determine repeat counts within the current view
             song_repeat_counts = {}
-            for track in category_tracks:
-                song_key = (track.Playlist.artist, track.Playlist.song)
-                song_repeat_counts[song_key] = song_repeat_counts.get(song_key, 0) + 1
-            max_repeats = max(song_repeat_counts.values(), default=0)
-            category_repeats[category] = max_repeats
-    
-    return render_template('playlist.html', 
-                        playlist=playlist_info, 
-                        tracks=playlist_tracks, 
-                        category_percentages=category_percentages,
-                        category_repeats=category_repeats,
-                        spotify_uris_map=spotify_uris_map)  # Pass Spotify URIs map to the template
+            for track in normalized_tracks:
+                if track['category'] == category:
+                    song_key = (track['artist'], track['song'])
+                    song_repeat_counts[song_key] = song_repeat_counts.get(song_key, 0) + 1
+            category_repeats[category] = max(song_repeat_counts.values(), default=0)
+
+    # Prepare version dropdown options for template
+    version_options = []
+    for version in available_versions:
+        label = version.active_from.strftime('%Y-%m-%d %H:%M') if version.active_from else version.version_id
+        if version.active_until:
+            label += f" → {version.active_until.strftime('%Y-%m-%d %H:%M')}"
+        else:
+            label += " (Active)"
+        version_options.append({
+            'id': version.version_id,
+            'label': label
+        })
+
+    return render_template(
+        'playlist.html',
+        playlist=playlist_info,
+        tracks=normalized_tracks,
+        category_percentages=category_percentages,
+        category_repeats=category_repeats,
+        version_options=version_options,
+        selected_version_id=selected_version.version_id if selected_version else None
+    )
 
 @main_bp.route('/playlists')
 @login_required

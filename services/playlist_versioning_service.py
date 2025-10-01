@@ -215,12 +215,38 @@ class PlaylistVersioningService:
                     PlaylistVersionTrack.song == song
                 )
             ).first()
-            
+
             if track:
                 logger.debug(f"Found track '{artist} - {song}' at position {track.track_position} in version {version_id}")
-            
-            return track
-            
+                return track
+
+            # Fall back to normalized comparison so punctuation/case variants still match
+            try:
+                from services.spotify_service import normalize_text
+            except ImportError:
+                normalize_text = lambda value: str(value or '').lower().strip()
+
+            normalized_artist = normalize_text(artist)
+            normalized_song = normalize_text(song)
+
+            candidate_tracks = db.session.query(PlaylistVersionTrack).filter(
+                PlaylistVersionTrack.version_id == version_id
+            ).all()
+
+            for candidate in candidate_tracks:
+                if (normalize_text(candidate.artist) == normalized_artist and
+                        normalize_text(candidate.song) == normalized_song):
+                    logger.debug(
+                        "Normalized match for '%s - %s' at position %s in version %s",
+                        artist,
+                        song,
+                        candidate.track_position,
+                        version_id
+                    )
+                    return candidate
+
+            return None
+
         except SQLAlchemyError as e:
             logger.error(f"Database error finding track '{artist} - {song}' in version {version_id}: {str(e)}")
             return None

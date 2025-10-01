@@ -4,13 +4,40 @@
 
 <div class="container mt-4">
     <h1 class="mb-4">{{ playlist.playlist_name }}</h1>
+    {% if playlist.playlist_date %}
     <p>Created on: {{ playlist.playlist_date.strftime('%Y-%m-%d %H:%M') }}</p>
+    {% endif %}
     <p>Total tracks: {{ playlist.track_count }}</p>
+    {% if playlist.version_id %}
+    <p class="text-muted">Viewing version starting {{ playlist.playlist_date.strftime('%Y-%m-%d %H:%M') }}{% if playlist.version_active_until %} (active until {{ playlist.version_active_until.strftime('%Y-%m-%d %H:%M') }}){% else %} (currently active){% endif %}</p>
+    {% endif %}
 
     <h2 class="mt-4 mb-3">Playlist Tracks</h2>
 
+    {% if version_options %}
+    <form method="get" action="{{ url_for('main.view_playlist', playlist_name=playlist.playlist_name) }}" class="mb-3">
+        <div class="form-row align-items-end">
+            <div class="form-group col-md-4">
+                <label for="version_id">Playlist Version</label>
+                <select class="form-control" id="version_id" name="version_id" onchange="this.form.submit()">
+                    <option value="" {% if not selected_version_id %}selected{% endif %}>Current playlist</option>
+                    {% for option in version_options %}
+                    <option value="{{ option.id }}" {% if option.id == selected_version_id %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <input type="hidden" name="song" value="{{ request.args.get('song', '') }}">
+            <input type="hidden" name="artist" value="{{ request.args.get('artist', '') }}">
+            <input type="hidden" name="category" value="{{ request.args.get('category', '') }}">
+        </div>
+    </form>
+    {% endif %}
+
     <form method="get" action="{{ url_for('main.view_playlist', playlist_name=playlist.playlist_name) }}" class="mb-4">
         <div class="form-row">
+            {% if version_options %}
+            <input type="hidden" name="version_id" value="{{ selected_version_id or '' }}">
+            {% endif %}
             <div class="form-group col-md-3">
                 <input type="text" class="form-control" id="song" name="song" placeholder="Filter by Song" value="{{ request.args.get('song', '') }}">
             </div>
@@ -22,7 +49,7 @@
             </div>
             <div class="form-group col-md-3">
                 <button type="submit" class="btn btn-primary">Filter</button>
-                <a href="{{ url_for('main.view_playlist', playlist_name=playlist.playlist_name) }}" class="btn btn-secondary">Clear</a>
+                <a href="{{ url_for('main.view_playlist', playlist_name=playlist.playlist_name, version_id=selected_version_id) }}" class="btn btn-secondary">Clear</a>
             </div>
         </div>
     </form>
@@ -60,25 +87,25 @@
             <tbody>
                 {% for track in tracks %}
                 <tr>
-                    <td>{{ track.Playlist.track_position }}</td>
-                    <td>{{ track.Playlist.artist }}</td>
-                    <td>{{ track.Playlist.song }}</td>
-                    <td>{{ track.Playlist.category }}</td>
-                    <td>{{ track.Playlist.play_cnt }}</td>
-                    <td>{{ track.last_play_dt }}</td>
+                    <td>{{ track.track_position }}</td>
+                    <td>{{ track.artist }}</td>
+                    <td>{{ track.song }}</td>
+                    <td>{{ track.category }}</td>
+                    <td>{{ track.play_cnt }}</td>
+                    <td>{{ track.last_play_dt.strftime('%Y-%m-%d %H:%M') if track.last_play_dt else 'N/A' }}</td>
                     <td>
-                        {% if spotify_uris_map.get(track.track_id) %}
-                        {{ spotify_uris_map.get(track.track_id)[0].uri.split(':')[-1] }}
-                        {% if spotify_uris_map.get(track.track_id)|length > 1 %}
-                        <span class="badge badge-info">+{{ spotify_uris_map.get(track.track_id)|length - 1 }}</span>
+                        {% if track.spotify_uris %}
+                        {{ track.spotify_uris[0].uri.split(':')[-1] }}
+                        {% if track.spotify_uris|length > 1 %}
+                        <span class="badge badge-info">+{{ track.spotify_uris|length - 1 }}</span>
                         {% endif %}
                         {% else %}
                         N/A
                         {% endif %}
                     </td>
                     <td>
-                        {% if spotify_uris_map.get(track.track_id) %}
-                        <a href="https://open.spotify.com/track/{{ spotify_uris_map.get(track.track_id)[0].uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
+                        {% if track.spotify_uris %}
+                        <a href="https://open.spotify.com/track/{{ track.spotify_uris[0].uri.split(':')[-1] }}" target="_blank">Open in Spotify</a>
                         {% else %}
                         N/A
                         {% endif %}

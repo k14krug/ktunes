@@ -1,0 +1,481 @@
+#!/usr/bin/env python3
+import os, sys, subprocess, shlex, socket, time, tarfile, tempfile, pathlib
+from datetime import datetime
+
+try:
+    import yaml  # PyYAML
+except Exception:
+    yaml = None
+
+PROJECT_HOME = os.environ.get("PROJECT_HOME", os.path.expanduser("~/projects"))
+HOSTNAME = socket.gethostname()
+
+def run(cmd, check=True, capture=False, env=None):
+    if isinstance(cmd, str):
+        cmd_list = shlex.split(cmd)
+    else:
+        cmd_list = cmd
+    if capture:
+        res = subprocess.run(cmd_list, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        return res.stdout.strip()
+    else:
+        return subprocess.run(cmd_list, check=check, env=env)
+
+def die(msg, code=1):
+    print(f"ERROR: {msg}", file=sys.stderr); sys.exit(code)
+
+def in_repo():
+    try:
+        run(["git", "rev-parse", "--show-toplevel"], check=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+def repo_root():
+    return run(["git", "rev-parse", "--show-toplevel"], capture=True)
+
+def current_branch():
+    return run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture=True)
+
+def short_sha(ref="HEAD"):
+    return run(["git", "rev-parse", "--short", ref], capture=True)
+
+def dirty():
+    return run(["git", "status", "--porcelain"], capture=True) != ""
+
+def load_yaml(path):
+    if not os.path.exists(path):
+        die(f"missing config: {path}")
+    if yaml is None:
+        die("PyYAML not installed. Run: pip install pyyaml")
+    with open(path, "r") as f:
+        return yaml.safe_load(f) or {}
+
+def env_role():
+    v = os.environ.get("APP_ENV")
+    if v in ("dev", "prod"): return v
+    hosts_path = os.path.expanduser("~/.proj-hosts.yml")
+    try:
+        if os.path.exists(hosts_path):
+            cfg = load_yaml(hosts_path)
+            for role, block in (cfg.get("roles") or {}).items():
+                for h in block.get("hosts", []):
+                    if h.get("host") == HOSTNAME:
+                        return role
+    except SystemExit:
+        pass
+    return "prod" if HOSTNAME.lower() == "raspberrypi" else "dev"
+
+def guess_project_name(cwd=None):
+    cwd = cwd or os.getcwd()
+    ph = os.path.abspath(PROJECT_HOME)
+    try:
+        p = pathlib.Path(cwd).resolve()
+    except Exception:
+        p = pathlib.Path(cwd)
+    parts = p.parts
+    ph_parts = pathlib.Path(ph).parts
+    if len(parts) >= len(ph_parts)+1 and tuple(parts[:len(ph_parts)]) == ph_parts:
+        return parts[len(ph_parts)]
+    if in_repo():
+        r = pathlib.Path(repo_root())
+        parts = r.parts
+        if len(parts) >= len(ph_parts)+1 and tuple(parts[:len(ph_parts)]) == ph_parts:
+            return parts[len(ph_parts)]
+    return None
+
+def proj_paths(project, role):
+    if role == "prod":
+        conf_path = f"/home/kkrug/apps/{project}/proj.conf"
+        base = f"/home/kkrug/apps/{project}"
+    else:
+        conf_path = os.path.join(PROJECT_HOME, project, "proj.conf")
+        base = os.path.join(PROJECT_HOME, project)
+    return base, conf_path
+
+def load_proj_conf(project, role):
+    base, conf_path = proj_paths(project, role)
+    conf = load_yaml(conf_path)
+    conf["_base"] = base
+    conf["_venv_dir"] = os.path.join(base, conf.get("venv_rel", "venv"))
+    conf["_python"] = os.path.join(base, conf.get("python", "venv/bin/python"))
+    conf["_requirements"] = os.path.join(base, conf.get("requirements", "requirements.txt"))
+    return conf
+
+def git_ahead_behind(remote_branch):
+    try:
+        out = run(["git","rev-list","--left-right","--count", f"{remote_branch}...HEAD"], capture=True)
+        left,right = out.split()
+        return int(right), int(left)  # ahead, behind
+    except Exception:
+        return 0,0
+
+def cmd_log(args):
+    n = "10"
+    if len(args)>=2 and args[0] in ("-n","--num"):
+        n = args[1]
+        args = args[2:]
+    #fmt = "%h  %ad  %an  %s"
+    fmt = "%h  %ad  %d  %s"
+    out = run(["git","log","-n", n, f"--pretty=format:{fmt}", "--date=short"], capture=True)
+    print(out)
+
+def cmd_status(args):
+    if not in_repo():
+        die("not in a git repo")
+    br = current_branch()
+    sha = short_sha("HEAD")
+    ab = ""
+    try:
+        upstream = run(["git","rev-parse","--abbrev-ref","--symbolic-full-name","@{u}"], capture=True)
+        ahead, behind = git_ahead_behind(upstream)
+        ab = f" (ahead {ahead}, behind {behind})"
+    except subprocess.CalledProcessError:
+        pass
+    print(f"Branch: {br} @ {sha}{ab}")
+    if dirty():
+        print("Dirty working tree")
+        # Show the actual files
+        out = run(["git","status","--short"], capture=True)
+        print(out)
+    else:
+        print("Clean working tree")
+
+
+def cmd_choose(args):
+    role = env_role()
+    if role != "dev": die("choose must be run on dev")
+    target = args[0] if args else "HEAD"
+    if not in_repo(): die("not in a git repo")
+    run(["git","fetch","--tags","--prune"])
+    commit = short_sha(target)
+    tag = "prod-" + datetime.now().strftime("%Y%m%d-%H%M")
+    run(["git","tag", tag, commit])
+    run(["git","push","--tags"])
+    print(f"Tagged {commit} as {tag} and pushed.")
+
+def cmd_untag(args):
+    role = env_role()
+    if role != "dev":
+        die("untag should only be run on dev")
+
+    if not args:
+        die("Usage: proj untag <tag>")
+
+    tag = args[0]
+
+    # Make sure tag exists locally
+    try:
+        commit = run(["git", "rev-list", "-n", "1", tag], capture=True)
+    except subprocess.CalledProcessError:
+        die(f"Tag {tag} not found locally")
+
+    print(f"Tag: {tag}")
+    print(f"Commit: {commit}")
+
+    ans = input(f"Delete tag {tag} locally and on remote? [y/N]: ").strip().lower()
+    if ans not in ("y", "yes"):
+        print("Aborted.")
+        return
+
+    # Delete locally
+    run(["git", "tag", "-d", tag])
+    print(f"Deleted local tag {tag}")
+
+    # Delete remote (if present)
+    try:
+        remote_tags = run(["git", "ls-remote", "--tags", "origin"], capture=True)
+        if tag in remote_tags:
+            run(["git", "push", "origin", f":refs/tags/{tag}"])
+            print(f"Deleted remote tag {tag}")
+        else:
+            print(f"Tag {tag} not found on remote; nothing to delete there.")
+    except Exception as e:
+        print(f"Warning: failed to check/delete remote tag: {e}")
+
+
+def cmd_push_config(args):
+    host = "raspberrypi"
+    project = None
+    i=0
+    while i < len(args):
+        if args[i] in ("--host","-H") and i+1 < len(args):
+            host = args[i+1]; i+=2; continue
+        if args[i] in ("--project","-p") and i+1 < len(args):
+            project = args[i+1]; i+=2; continue
+        i+=1
+    role = "dev"
+    if project is None:
+        project = guess_project_name()
+    if project is None: die("cannot infer project; use --project <name>")
+    base, conf_path = proj_paths(project, role)
+    if not os.path.exists(conf_path):
+        die(f"local config not found: {conf_path}")
+    conf = load_yaml(conf_path)
+    prod_path = conf.get("prod_path") or f"/home/kkrug/apps/{project}"
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_cmd = f"ssh {shlex.quote(host)} 'test -f {shlex.quote(prod_path)}/proj.conf && mv {shlex.quote(prod_path)}/proj.conf {shlex.quote(prod_path)}/proj.conf.bak-{ts} || true'"
+    run(backup_cmd)
+    run(["scp", conf_path, f"{host}:{prod_path}/proj.conf"])
+    print(f"Pushed proj.conf → {host}:{prod_path}/proj.conf (backup ts {ts} if previous existed)")
+
+def cmd_guard(args):
+    if not in_repo(): die("not in a git repo")
+    if dirty(): die("working tree is dirty; commit/stash first")
+    try:
+        upstream = run(["git","rev-parse","--abbrev-ref","--symbolic-full-name","@{u}"], capture=True)
+        ahead, behind = git_ahead_behind(upstream)
+        if ahead>0:
+            die(f"local branch is ahead of {upstream} by {ahead} commits (don't push from prod)")
+    except subprocess.CalledProcessError:
+        print("No upstream set; skipping ahead/behind check")
+
+def tcp_wait(port, host="127.0.0.1", timeout=25):
+    import socket as pysock
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with pysock.create_connection((host, port), timeout=2):
+                return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+def tar_backup(dir_path, out_path):
+    with tarfile.open(out_path, "w:gz") as tar:
+        tar.add(dir_path, arcname=os.path.basename(dir_path))
+
+def cmd_deploy(args):
+    role = env_role()
+    if role != "prod":
+        die("deploy must be run on prod")
+
+    # flags
+    yes = False
+    dry_run = False
+    target = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--yes":
+            yes = True; i += 1; continue
+        if a == "--dry-run":
+            dry_run = True; i += 1; continue
+        # first non-flag is the tag/sha
+        if target is None:
+            target = a
+        i += 1
+
+    project = guess_project_name()
+    if project is None:
+        die("cannot infer project; cd into /home/kkrug/apps/<project>")
+
+    base, conf_path = proj_paths(project, "prod")
+    conf = load_proj_conf(project, "prod")
+    os.chdir(base)
+
+    # Hard guard rails first
+    cmd_guard([])  # refuses if dirty or ahead of upstream
+
+    # Figure out target tag/SHA
+    run(["git","fetch","--tags","--prune"])
+    if not target:
+        tags = run(["git","tag","-l","prod-*","--sort=-creatordate"], capture=True).splitlines()
+        if not tags:
+            die("no prod-* tags found; run 'proj choose' on dev first")
+        target = tags[0]
+
+    # Resolve commits
+    old_commit = short_sha("HEAD")
+    try:
+        target_commit = short_sha(target)
+    except subprocess.CalledProcessError:
+        die(f"cannot resolve target '{target}'")
+
+    svc = conf.get("service_name") or f"{project}.service"
+
+    # Show shortlog of changes (if any) from old -> target
+    try:
+        shortlog = run(["git","log","--oneline","--decorate","--no-merges", f"{old_commit}..{target}"], capture=True)
+    except subprocess.CalledProcessError:
+        shortlog = ""
+
+    tag_date = ""
+    try:
+        tag_date = run(["git","log","-1","--format=%ad","--date=iso", target], capture=True)
+    except subprocess.CalledProcessError:
+        pass
+
+    print("\n=== DEPLOY PLAN ===")
+    print(f"  Host:     {HOSTNAME} (role: prod)")
+    print(f"  Project:  {project}")
+    print(f"  Path:     {base}")
+    print(f"  Service:  {svc}")
+    print(f"  From:     {old_commit}")
+    print(f"  To:       {target_commit} ({target})")
+    if tag_date:
+        print(f"  Tag date: {tag_date}")
+    port = conf.get("health_tcp_port")
+    if port:
+        print(f"  Health:   TCP port {port} (timeout {conf.get('health_timeout',25)}s)")
+    else:
+        print("  Health:   (none configured)")
+
+    if shortlog.strip():
+        print("\n  Changes:")
+        for line in shortlog.splitlines():
+            print(f"    {line}")
+    else:
+        print("\n  Changes:  (none or unreachable via shortlog)")
+
+    if dry_run:
+        print("\nDry-run: no actions taken.")
+        return
+
+    if not yes:
+        ans = input("\nProceed with deploy? [y/N]: ").strip().lower()
+        if ans not in ("y","yes"):
+            print("Aborted.")
+            return
+
+    # --- real work starts here ---
+    backups = "/home/kkrug/backups"
+    os.makedirs(backups, exist_ok=True)
+    backup_tar = os.path.join(backups, f"{project}-{datetime.now():%Y%m%d-%H%M%S}.tar.gz")
+
+    print(f"\nStopping service: {svc}")
+    run(["sudo","systemctl","stop", svc], check=False)
+
+    print(f"Backing up current tree to {backup_tar}")
+    tar_backup(base, backup_tar)
+
+    print(f"Checking out {target} (detached)")
+    run(["git","fetch","--tags","--prune"])
+    run(["git","checkout","--detach", target])
+
+    venv_dir = conf["_venv_dir"]
+    venv_python = conf["_python"]
+    if not os.path.exists(venv_python):
+        print("venv missing; creating...")
+        run(["python3","-m","venv", venv_dir])
+        venv_python = conf["_python"]
+
+    env = dict(os.environ)
+    env["VIRTUAL_ENV"] = venv_dir
+    env["PATH"] = f"{os.path.join(venv_dir,'bin')}:" + env.get("PATH","")
+
+    if conf.get("install_cmd"):
+        print("Installing dependencies...")
+        run(["bash","-lc", conf.get("install_cmd")], env=env)
+
+    if conf.get("migrate_cmd"):
+        print("Running migrations...")
+        run(["bash","-lc", conf.get("migrate_cmd")], env=env)
+
+    print(f"Starting service: {svc}")
+    run(["sudo","systemctl","start", svc])
+
+    ok = True
+    if port:
+        print(f"Waiting for TCP port {port} ...")
+        ok = tcp_wait(int(port), "127.0.0.1", int(conf.get("health_timeout",25)))
+    else:
+        print("No health_tcp_port set; skipping health check")
+
+    if not ok:
+        print("Health check FAILED. Rolling back...")
+        run(["sudo","systemctl","stop", svc], check=False)
+        tmpdir = tempfile.mkdtemp(prefix="proj-rollback-")
+        with tarfile.open(backup_tar, "r:gz") as tar:
+            tar.extractall(tmpdir)
+        src = os.path.join(tmpdir, os.path.basename(base))
+        run(["rsync","-a","--delete", f"{src}/", f"{base}/"])
+        run(["sudo","systemctl","start", svc])
+        die("Rollback applied; investigate logs.")
+
+    new_commit = short_sha("HEAD")
+    print(f"\nDeploy OK: {project} {old_commit} → {new_commit} ({target})")
+
+def cmd_test_run(args):
+    role = env_role()
+    if role != "prod": die("test-run must be on prod")
+    project = guess_project_name()
+    if project is None: die("cd into /home/kkrug/apps/<project>")
+    conf = load_proj_conf(project, "prod")
+    svc = conf.get("service_name") or f"{project}.service"
+    dev_cmd = conf.get("dev_cmd")
+    if not dev_cmd:
+        die("dev_cmd not set in proj.conf")
+
+    print(f"Stopping service: {svc}")
+    run(["sudo","systemctl","stop", svc], check=False)
+
+    env = dict(os.environ)
+    env["VIRTUAL_ENV"] = conf["_venv_dir"]
+    env["PATH"] = f"{os.path.join(conf['_venv_dir'],'bin')}:" + env.get("PATH","")
+
+    print(f"Starting dev cmd: {dev_cmd}")
+    proc = subprocess.Popen(["bash","-lc", dev_cmd], cwd=conf["_base"], env=env)
+
+    port = conf.get("health_tcp_port")
+    if port:
+        from time import sleep
+        if tcp_wait(int(port), "127.0.0.1", int(conf.get("health_timeout",25))):
+            print(f"Dev process listening on {port}. Press Ctrl-C to stop and restore service.")
+        else:
+            print("Warning: port did not open within timeout. Check logs/console.")
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        print("\nStopping dev process...")
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    print(f"Restarting service: {svc}")
+    run(["sudo","systemctl","start", svc])
+
+def usage():
+    print("""proj - project/devops helper
+
+Usage:
+  proj log [-n N]
+  proj status
+  proj choose [<commit>]         # dev only; tag current or given commit and push
+    proj untag <tag>               # dev only; delete local and remote tag
+  proj push-config [--host HOST] [--project NAME]
+  proj guard
+  proj deploy [<tag|sha>] [--yes] [--dry-run]
+                                  # prod only; deploy latest prod-* tag by default
+  proj test-run                  # prod only; stop service, run dev_cmd, restart
+
+Environment:
+  APP_ENV=dev|prod   override host-role detection
+  PROJECT_HOME       defaults to ~/projects
+
+Config files:
+  ~/.proj-hosts.yml             optional role mapping
+  <project>/proj.conf           per-project settings (see runbook)
+""")
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h","--help","help"):
+        usage(); return 0
+    cmd = argv[1]
+    args = argv[2:]
+    if cmd == "log": cmd_log(args)
+    elif cmd == "status": cmd_status(args)
+    elif cmd == "choose": cmd_choose(args)
+    elif cmd == "push-config": cmd_push_config(args)
+    elif cmd == "guard": cmd_guard(args)
+    elif cmd == "deploy": cmd_deploy(args)
+    elif cmd == "test-run": cmd_test_run(args)
+    elif cmd == "untag": cmd_untag(args)
+    else:
+        usage(); return 1
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
