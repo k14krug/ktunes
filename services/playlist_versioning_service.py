@@ -222,20 +222,20 @@ class PlaylistVersioningService:
 
             # Fall back to normalized comparison so punctuation/case variants still match
             try:
-                from services.spotify_service import normalize_text
+                from services.spotify_service import normalize_text_for_matching
             except ImportError:
-                normalize_text = lambda value: str(value or '').lower().strip()
+                normalize_text_for_matching = lambda value: str(value or '').lower().strip()
 
-            normalized_artist = normalize_text(artist)
-            normalized_song = normalize_text(song)
+            normalized_artist = normalize_text_for_matching(artist)
+            normalized_song = normalize_text_for_matching(song)
 
             candidate_tracks = db.session.query(PlaylistVersionTrack).filter(
                 PlaylistVersionTrack.version_id == version_id
             ).all()
 
             for candidate in candidate_tracks:
-                if (normalize_text(candidate.artist) == normalized_artist and
-                        normalize_text(candidate.song) == normalized_song):
+                if (normalize_text_for_matching(candidate.artist) == normalized_artist and
+                        normalize_text_for_matching(candidate.song) == normalized_song):
                     logger.debug(
                         "Normalized match for '%s - %s' at position %s in version %s",
                         artist,

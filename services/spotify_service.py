@@ -466,8 +466,8 @@ def fetch_and_update_recent_tracks(limit=50):
                 # If no URI match, try song/artist match
                 if not db_track:
                     # Normalize for comparison
-                    recent_track_name_norm = normalize_text(recent_track['track_name'])
-                    recent_artist_norm = normalize_text(recent_track['artist'])
+                    recent_track_name_norm = normalize_text_for_matching(recent_track['track_name'])
+                    recent_artist_norm = normalize_text_for_matching(recent_track['artist'])
                     
                     # Query using normalized fields if we had them, or compare normalized python-side
                     # For now, let's fetch potential matches and normalize Track.song and Track.artist in Python
@@ -483,7 +483,7 @@ def fetch_and_update_recent_tracks(limit=50):
                     all_tracks_by_artist = Track.query.filter(func.lower(Track.artist) == func.lower(recent_track['artist'])).all()
                     found_match = False
                     for track_in_db in all_tracks_by_artist:
-                        db_song_norm = normalize_text(track_in_db.song)
+                        db_song_norm = normalize_text_for_matching(track_in_db.song)
                         if db_song_norm == recent_track_name_norm:
                             db_track = track_in_db
                             found_match = True
@@ -491,7 +491,7 @@ def fetch_and_update_recent_tracks(limit=50):
                     if not found_match: # If no match by artist, try by song title (less likely to be unique)
                         all_tracks_by_song = Track.query.filter(func.lower(Track.song) == func.lower(recent_track['track_name'])).all()
                         for track_in_db in all_tracks_by_song:
-                            db_artist_norm = normalize_text(track_in_db.artist)
+                            db_artist_norm = normalize_text_for_matching(track_in_db.artist)
                             if db_artist_norm == recent_artist_norm:
                                 db_track = track_in_db
                                 # found_match = True # Not strictly needed here as we assign db_track
@@ -1329,8 +1329,8 @@ def correlate_track_with_current_playlist_temporal(artist: str, song: str, playe
 
         if not playlist_track:
             # Fallback to normalized comparison so formatting differences still match
-            normalized_artist = normalize_text(artist)
-            normalized_song = normalize_text(song)
+            normalized_artist = normalize_text_for_matching(artist)
+            normalized_song = normalize_text_for_matching(song)
 
             candidate_tracks = db.session.query(Playlist).filter(
                 and_(
@@ -1340,8 +1340,8 @@ def correlate_track_with_current_playlist_temporal(artist: str, song: str, playe
             ).all()
 
             for candidate in candidate_tracks:
-                if (normalize_text(candidate.artist) == normalized_artist and
-                        normalize_text(candidate.song) == normalized_song):
+                if (normalize_text_for_matching(candidate.artist) == normalized_artist and
+                        normalize_text_for_matching(candidate.song) == normalized_song):
                     playlist_track = candidate
                     break
 
